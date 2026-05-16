@@ -1,0 +1,48 @@
+spring:
+  application:
+    name: ibox-server
+  datasource:
+    url: jdbc:mysql://127.0.0.1:3306/ibox?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
+    username: root
+    password: iamsendy
+    driver-class-name: com.mysql.cj.jdbc.Driver
+mybatis-plus:
+  mapper-locations: classpath:/mapper/*.xml
+  type-aliases-package: com.ibox.entity
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+
+ibox:
+  proxy:
+    api-url: http://api.xiequ.cn/VAD/GetIp.aspx?act=getturn82&uid=111218&vkey=5889F0109BE2B35754B00497A318544A&num=1&time=6&plat=1&re=0&type=7&so=1&group=51&ow=1&spl=1&addr=&db=1
+    config-proxies:
+      - 101.71.8.77:6352:xhci12s1:xhci12s1
+      - 36.213.44.197:6685:amrl13o1:amrl13o1
+      - 125.122.37.149:1287:wkut14v3:wkut14v3
+      - 61.172.169.94:8525:sjtx12o1:sjtx12o1
+      - 223.93.69.121:30188:dlrq0514gz1000:fG8_20260514
+      - 223.93.69.135:30188:mcuk0512im1000:rgi_20260512
+      - 125.122.24.148:1122:eudo13a1:eudo13a1
+      - 115.231.37.136:6522:wkut14v4:wkut14v4
+      - 115.231.43.78:1212:wkut14v1:wkut14v1
+      - 125.122.159.118:2535:wkut14v2:wkut14v2
+      - 223.93.69.121:30188:dlrq0514gz1001:zmh_20260514
+      - 125.122.21.110:5888:wkut14v5:wkut14v5
+      - local
+server:
+  port: 8080
+
+
+
