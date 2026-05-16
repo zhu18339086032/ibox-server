@@ -225,6 +225,10 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
      * 只有真正拿到 iBox 业务响应的请求才计入分钟额度，代理超时、异常、null 响应都不计数。
      */
     private void executeTaskLoop(Long taskId) {
+        if (shouldStop(taskId)) {
+            return;
+        }
+
         PurchaseTaskEntity task = purchaseTaskService.getById(taskId);
         if (task == null) {
             taskAccountIndexMap.remove(taskId);
@@ -254,6 +258,10 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         int purchasedCount = task.getPurchasedCount() == null ? 0 : task.getPurchasedCount();
 
         while (validRequestCount < targetValidRequestCount) {
+            // 每次循环都检查停止状态，保证点击停止后能尽快退出，而不是继续跑完整轮。
+            if (shouldStop(taskId)) {
+                return;
+            }
             if (isTargetReached(task.getMaxCount(), purchasedCount)) {
                 stopTask(taskId);
                 return;
@@ -290,7 +298,6 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
                     }
                 }
             } catch (Exception e) {
-                // 单次异常不计入有效请求数，继续补发下一次请求。
                 log.warn("【批量购买任务】请求处理异常，taskId:{}, accountId:{}, collectionId:{}", taskId, account.getId(), task.getDigitalCollectionGroupId(), e);
             }
 
@@ -313,7 +320,6 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
      */
     private PurchaseResult doPurchase(PurchaseTaskEntity task, IboxAccountEntity account) {
         BatchPurchaseConsignmentOrdersReq req = buildBatchPurchaseRequest(task);
-        ProxyInfo proxyInfo = iboxProxyService.getNextConfigProxy();
         IboxApiResponse<Map<String, Object>> purchaseResponse;
         try {
             purchaseResponse = iboxClient.post(
@@ -322,7 +328,6 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
                     req,
                     new TypeReference<>() {
                     }
-//                    , proxyInfo
             );
         } catch (Exception e) {
             log.warn("【批量购买任务】请求异常，不计入有效请求，taskId:{}, accountId:{}, collectionId:{}",
@@ -338,7 +343,6 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         }
 
         if (!isPurchaseSuccess(purchaseResponse)) {
-            // 只要拿到了明确的业务响应，就算一次有效请求，即使是“暂无可购买”。
             return PurchaseResult.validFail();
         }
 
@@ -457,6 +461,14 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
     }
 
     /**
+     * 判断当前任务是否应立即停止。
+     * 点击停止后，运行态会先从运行管理器移除，这里要及时感知并退出热循环。
+     */
+    private boolean shouldStop(Long taskId) {
+        return Thread.currentThread().isInterrupted() || !purchaseTaskRuntimeManager.isRunning(taskId);
+    }
+
+    /**
      * 从任务配置的账号列表中按顺序轮换选择本次账号。
      */
     private IboxAccountEntity getNextAccount(Long taskId, List<Long> accountIds) {
@@ -543,7 +555,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
     }
 
     /**
-     * 统一处理休眠，避免线程被中断后继续执行。
+     * 统一处理休眠。线程一旦被中断，立刻返回，让外层尽快结束任务。
      */
     private void sleep(long millis) {
         try {

@@ -13,7 +13,12 @@ import com.ibox.entity.MarketCollectionEntity;
 import com.ibox.manager.AnnouncementMonitorManager;
 import com.ibox.model.ProxyInfo;
 import com.ibox.model.req.ibox.BatchPurchaseConsignmentOrdersReq;
-import com.ibox.model.res.ibox.*;
+import com.ibox.model.res.ibox.AnnouncementRes;
+import com.ibox.model.res.ibox.HomeActivityAreaItemRes;
+import com.ibox.model.res.ibox.HomeActivityAreaListRes;
+import com.ibox.model.res.ibox.IboxApiResponse;
+import com.ibox.model.res.ibox.IboxPageDataRes;
+import com.ibox.model.res.ibox.OrderDetailRes;
 import com.ibox.model.res.web.MatchedMarketCollectionRes;
 import com.ibox.service.IboxAccountService;
 import com.ibox.service.IboxProxyService;
@@ -25,11 +30,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
+ * 公告与推荐位监控服务实现类。
  * 同时监控公告与推荐位事件，并在命中时触发购买尝试。
  */
 @Slf4j
@@ -42,7 +54,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
     private static final BigDecimal MIN_FLOOR_PRICE = new BigDecimal("20");
 
     /**
-     * 首页推荐位的固定 areaType。
+     * 首页推荐位固定 areaType。
      */
     private static final int RECOMMEND_AREA_TYPE = 1;
 
@@ -94,7 +106,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
     private AnnouncementContentParser announcementContentParser;
 
     /**
-     * 公告轮询代理服务。
+     * 代理服务。
      */
     @Autowired
     private IboxProxyService iboxProxyService;
@@ -192,7 +204,9 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         log.warn("【公告监控耗时】所有候选下单失败, uuid:{}, listCostMs:{}, detailCostMs:{}, parseCostMs:{}, matchCostMs:{}, totalCostMs:{}, candidates:{}", latest.getUuid(), listCostMs, detailCostMs, parseCostMs, matchCostMs, elapsedMs(startAt), candidates.size());
     }
 
-
+    /**
+     * 监控首页推荐位，新推荐位出现后尝试下单。
+     */
     @Override
     public void monitorRecommendArea(IboxMonitorTaskConfigEntity config) {
         long startAt = System.nanoTime();
@@ -205,67 +219,76 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         }
 
         long listStartAt = System.nanoTime();
-        IboxApiResponse<HomeActivityAreaListRes> response = iboxClient.get("", String.format(UrlConstant.HOME_ACTIVITY_AREAS_URL, RECOMMEND_AREA_TYPE), null, HomeActivityAreaListRes.class);
+        ProxyInfo nextConfigProxy = iboxProxyService.getNextConfigProxy();
+        IboxApiResponse<HomeActivityAreaListRes> response = iboxClient.get("", String.format(UrlConstant.HOME_ACTIVITY_AREAS_URL, RECOMMEND_AREA_TYPE), null, HomeActivityAreaListRes.class, nextConfigProxy);
         long listCostMs = elapsedMs(listStartAt);
-        if (response == null || response.getData() == null || response.getData().getList() == null || response.getData().getList().isEmpty()) {
-            return;
-        }
+        boolean requestSucceeded = response != null && response.getCode() != null && response.getCode() == 0;
+        try {
+            if (response == null || response.getData() == null || response.getData().getList() == null || response.getData().getList().isEmpty()) {
+                return;
+            }
+            List<HomeActivityAreaItemRes> list = response.getData().getList();
+            Set<Long> seenIds = announcementStateCache.getOrCreateRecommendAreaSeenIds(config.getId());
+            log.info("【推荐位监控】推荐位数量:{}",seenIds);
+            if (seenIds.isEmpty()) {
+                for (HomeActivityAreaItemRes item : list) {
+                    if (item != null && item.getId() != null) {
+                        seenIds.add(item.getId());
+                    }
+                }
+                log.info("【推荐位监控】首次启动建立基线, taskId:{}, areaType:{}, baselineCount:{}, listCostMs:{}", config.getId(), RECOMMEND_AREA_TYPE, seenIds.size(), listCostMs);
+                return;
+            }
 
-        List<HomeActivityAreaItemRes> list = response.getData().getList();
-        Set<Long> seenIds = announcementStateCache.getOrCreateRecommendAreaSeenIds(config.getId());
-        if (seenIds.isEmpty()) {
+            List<HomeActivityAreaItemRes> newItems = new ArrayList<>();
             for (HomeActivityAreaItemRes item : list) {
-                if (item != null && item.getId() != null) {
+                if (item == null || item.getId() == null || seenIds.contains(item.getId())) {
+                    continue;
+                }
+                newItems.add(item);
+            }
+            if (newItems.isEmpty()) {
+                return;
+            }
+
+            int purchaseCount = resolvePurchaseCount(config);
+            Integer paymentPlatformCode = resolvePaymentPlatformCode(account, config);
+            BigDecimal priceLimit = config.getMaxPrice();
+            ensureMarketCacheLoaded();
+
+            for (HomeActivityAreaItemRes item : newItems) {
+                if (item.getId() != null) {
                     seenIds.add(item.getId());
                 }
-            }
-            log.info("【推荐位监控】首次启动建立基线, taskId:{}, areaType:{}, baselineCount:{}, listCostMs:{}", config.getId(), RECOMMEND_AREA_TYPE, seenIds.size(), listCostMs);
-            return;
-        }
+                String link = item.getLink();
+                Long collectionGroupId = extractMarketCollectionGroupId(link);
+                if (collectionGroupId == null) {
+                    log.info("【推荐位监控】跳过非商品链接, taskId:{}, areaId:{}, link:{}, listCostMs:{}", config.getId(), item.getId(), link, listCostMs);
+                    continue;
+                }
 
-        List<HomeActivityAreaItemRes> newItems = new ArrayList<>();
-        for (HomeActivityAreaItemRes item : list) {
-            if (item == null || item.getId() == null || seenIds.contains(item.getId())) {
-                continue;
-            }
-            newItems.add(item);
-        }
-        if (newItems.isEmpty()) {
-            return;
-        }
+                MarketCollectionEntity entity = marketCollectionCache.getById(collectionGroupId);
+                BigDecimal maxSinglePrice = resolveRecommendAreaMaxSinglePrice(entity, priceLimit);
+                String candidateName = entity == null || entity.getName() == null || entity.getName().isBlank() ? String.valueOf(collectionGroupId) : entity.getName();
+                log.info("【推荐位监控】检测到新增推荐位, taskId:{}, areaId:{}, collectionId:{}, collectionName:{}, link:{}, listCostMs:{}", config.getId(), item.getId(), collectionGroupId, candidateName, link, listCostMs);
 
-        int purchaseCount = resolvePurchaseCount(config);
-        Integer paymentPlatformCode = resolvePaymentPlatformCode(account, config);
-        BigDecimal priceLimit = config.getMaxPrice();
-        ensureMarketCacheLoaded();
-
-        for (HomeActivityAreaItemRes item : newItems) {
-            if (item.getId() != null) {
-                seenIds.add(item.getId());
+                BatchPurchaseConsignmentOrdersReq req = buildBatchPurchaseRequest(collectionGroupId, purchaseCount, maxSinglePrice.intValue(), paymentPlatformCode);
+                long purchaseStartAt = System.nanoTime();
+                IboxApiResponse<Map<String, Object>> purchaseResponse = submitBatchPurchase(account, req);
+                long purchaseCostMs = elapsedMs(purchaseStartAt);
+                if (isPurchaseSuccess(purchaseResponse)) {
+                    String orderUuid = extractOrderUuid(purchaseResponse);
+                    log.info("【推荐位监控耗时】taskId:{}, areaId:{}, collectionId:{}, purchaseCostMs:{}, totalCostMs:{}, result:success", config.getId(), item.getId(), collectionGroupId, purchaseCostMs, elapsedMs(startAt));
+                    notifyRecommendAreaPurchaseSuccess(account, item, entity, orderUuid);
+                    continue;
+                }
+                log.info("【推荐位监控】购买失败, taskId:{}, areaId:{}, collectionId:{}, purchaseCostMs:{}, response:{}", config.getId(), item.getId(), collectionGroupId, purchaseCostMs, JSONObject.toJSONString(purchaseResponse));
             }
-            String link = item.getLink();
-            Long collectionGroupId = extractMarketCollectionGroupId(link);
-            if (collectionGroupId == null) {
-                log.info("【推荐位监控】跳过非商品链接, taskId:{}, areaId:{}, link:{}, listCostMs:{}", config.getId(), item.getId(), link, listCostMs);
-                continue;
+        } finally {
+            // 只有推荐位列表接口本次真正请求成功，才补 1 秒休眠；异常、超时、空响应都不休眠。
+            if (requestSucceeded) {
+                sleepQuietly(1000L);
             }
-
-            MarketCollectionEntity entity = marketCollectionCache.getById(collectionGroupId);
-            BigDecimal maxSinglePrice = resolveRecommendAreaMaxSinglePrice(entity, priceLimit);
-            String candidateName = entity == null || entity.getName() == null || entity.getName().isBlank() ? String.valueOf(collectionGroupId) : entity.getName();
-            log.info("【推荐位监控】检测到新增推荐位, taskId:{}, areaId:{}, collectionId:{}, collectionName:{}, link:{}, listCostMs:{}", config.getId(), item.getId(), collectionGroupId, candidateName, link, listCostMs);
-
-            BatchPurchaseConsignmentOrdersReq req = buildBatchPurchaseRequest(collectionGroupId, purchaseCount, maxSinglePrice.intValue(), paymentPlatformCode);
-            long purchaseStartAt = System.nanoTime();
-            IboxApiResponse<Map<String, Object>> purchaseResponse = submitBatchPurchase(account, req);
-            long purchaseCostMs = elapsedMs(purchaseStartAt);
-            if (isPurchaseSuccess(purchaseResponse)) {
-                String orderUuid = extractOrderUuid(purchaseResponse);
-                log.info("【推荐位监控耗时】taskId:{}, areaId:{}, collectionId:{}, purchaseCostMs:{}, totalCostMs:{}, result:success", config.getId(), item.getId(), collectionGroupId, purchaseCostMs, elapsedMs(startAt));
-                notifyRecommendAreaPurchaseSuccess(account, item, entity, orderUuid);
-                continue;
-            }
-            log.info("【推荐位监控】购买失败, taskId:{}, areaId:{}, collectionId:{}, purchaseCostMs:{}, response:{}", config.getId(), item.getId(), collectionGroupId, purchaseCostMs, JSONObject.toJSONString(purchaseResponse));
         }
     }
 
@@ -275,7 +298,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
     }
 
     /**
-     * 跳过明显不可能产生可购目标的公告调整类通知。
+     * 跳过明显不可能产生可购买目标的公告调整类通知。
      */
     private boolean shouldSkipDetailFetch(String categoryName, String title) {
         if (categoryName == null || title == null) {
@@ -284,7 +307,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         if (!categoryName.contains("合成公告")) {
             return false;
         }
-        return title.contains("时间调整") || title.contains("娲诲姩时间调整") || title.contains("公告调整") || title.contains("修正");
+        return title.contains("时间调整") || title.contains("售卖时间调整") || title.contains("公告调整") || title.contains("修正");
     }
 
     /**
@@ -489,7 +512,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
     }
 
     /**
-     * 为空白文本提供可打印的兜底值。
+     * 为文本提供可打印的兜底值。
      */
     private String safeText(Object text) {
         if (text == null) {
@@ -497,6 +520,17 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         }
         String value = String.valueOf(text);
         return value.isBlank() ? "-" : value;
+    }
+
+    /**
+     * 静默休眠，避免推荐位监控线程因中断异常刷日志。
+     */
+    private void sleepQuietly(long millis) {
+        try {
+            Thread.sleep(Math.max(millis, 0L));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**
