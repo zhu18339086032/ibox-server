@@ -3,6 +3,7 @@ package com.ibox.model.req.web;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * 批量购买任务保存请求
@@ -26,9 +27,9 @@ public class PurchaseTaskSaveReq {
     private String collectionName;
 
     /**
-     * 账号ID
+     * 账号ID列表
      */
-    private Long accountId;
+    private List<Long> accountIds;
 
     /**
      * 最大购买数量

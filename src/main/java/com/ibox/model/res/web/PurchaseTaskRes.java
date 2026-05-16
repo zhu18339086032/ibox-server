@@ -4,6 +4,7 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 批量购买任务响应
@@ -32,9 +33,14 @@ public class PurchaseTaskRes {
     private String collectionName;
 
     /**
-     * 账号ID
+     * 账号ID列表
      */
-    private Long accountId;
+    private List<Long> accountIds;
+
+    /**
+     * 账号显示名称列表
+     */
+    private List<String> accountNames;
 
     /**
      * 目标购买总数

@@ -231,7 +231,6 @@ public abstract class AbstractIboxClient implements IboxClient {
                 log.info("【iBox客户端】请求iBox接口失败:【超时】--------------{}|{}", proxyInfo.getHost(), proxyInfo.getUsername());
             } else {
                 log.info("【iBox客户端】解析iBox接口响应失败:{}", e.getMessage());
-                log.info("【iBox客户端】请求iBox接口失败:{}|{}", proxyInfo.getHost(), proxyInfo.getUsername());
             }
             return "";
         }

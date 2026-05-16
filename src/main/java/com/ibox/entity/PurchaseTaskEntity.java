@@ -46,10 +46,10 @@ public class PurchaseTaskEntity extends BaseEntity {
     private String collectionName;
 
     /**
-     * 账号ID
+     * 账号ID集合，使用英文逗号分隔
      */
-    @TableField("account_id")
-    private Long accountId;
+    @TableField("account_ids")
+    private String accountIds;
 
     /**
      * 目标购买总数
@@ -107,7 +107,7 @@ public class PurchaseTaskEntity extends BaseEntity {
     private Integer notifyFeishu;
 
     /**
-     * 飞书机器人webhook地址
+     * 飞书机器人 webhook 地址
      */
     @TableField("feishu_webhook")
     private String feishuWebhook;
