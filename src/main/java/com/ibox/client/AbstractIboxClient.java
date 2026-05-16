@@ -225,7 +225,7 @@ public abstract class AbstractIboxClient implements IboxClient {
             ResponseEntity<String> responseEntity = executeTemplate.exchange(uri, method, entity, String.class);
             return responseEntity.getBody() == null ? "" : responseEntity.getBody();
         } catch (RestClientException e) {
-            if (e.getMessage().contains("429")) {
+            if (e.getMessage().contains("429") && proxyInfo != null) {
                 log.info("【iBox客户端】请求iBox接口失败:【429】--------------{}|{}", proxyInfo.getHost(), proxyInfo.getUsername());
             } else if (e.getMessage().contains("Read timed out") || e.getMessage().contains("Connect timed out")) {
                 log.info("【iBox客户端】请求iBox接口失败:【超时】--------------{}|{}", proxyInfo.getHost(), proxyInfo.getUsername());

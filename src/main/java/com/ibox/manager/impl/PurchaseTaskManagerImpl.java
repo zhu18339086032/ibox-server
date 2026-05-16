@@ -25,6 +25,7 @@ import com.ibox.service.IboxAccountService;
 import com.ibox.service.PurchaseOrderService;
 import com.ibox.service.PurchaseTaskService;
 import com.ibox.utils.FeishuMessageUtil;
+import com.ibox.utils.HfPayBalancePayUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -305,6 +306,8 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
                 return;
             }
             log.info("【批量购买任务】待支付订单链接, orderId:{}, paymentPlatformCode:{}, link:{}", orderId, paymentInfoResponse.getData().getPaymentPlatformCode(), paymentInfoResponse.getData().getLink());
+            String payBody = HfPayBalancePayUtil.balancePay(paymentInfoResponse.getData().getLink(), "347364");
+            log.info("【批量购买任务】支付结果:{}", payBody);
         } catch (Exception e) {
             log.warn("【批量购买任务】获取订单支付信息异常, orderId:{}", orderId, e);
         }
