@@ -12,17 +12,16 @@ import com.ibox.entity.IboxAccountEntity;
 import com.ibox.entity.PurchaseOrderEntity;
 import com.ibox.entity.PurchaseTaskEntity;
 import com.ibox.manager.PurchaseTaskManager;
-import com.ibox.model.ProxyInfo;
 import com.ibox.model.req.ibox.BatchPurchaseConsignmentOrdersReq;
 import com.ibox.model.req.web.PurchaseTaskPageReq;
 import com.ibox.model.req.web.PurchaseTaskSaveReq;
 import com.ibox.model.req.web.PurchaseTaskUpdateReq;
 import com.ibox.model.res.ibox.IboxApiResponse;
+import com.ibox.model.res.ibox.OrderPaymentInfoRes;
 import com.ibox.model.res.web.MonitorTaskExecuteRes;
 import com.ibox.model.res.web.PageResponse;
 import com.ibox.model.res.web.PurchaseTaskRes;
 import com.ibox.service.IboxAccountService;
-import com.ibox.service.IboxProxyService;
 import com.ibox.service.PurchaseOrderService;
 import com.ibox.service.PurchaseTaskService;
 import com.ibox.utils.FeishuMessageUtil;
@@ -68,9 +67,6 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
 
     @Autowired
     private PurchaseTaskRuntimeManager purchaseTaskRuntimeManager;
-
-    @Autowired
-    private IboxProxyService iboxProxyService;
 
     @Override
     public PageResponse<PurchaseTaskRes> list(PurchaseTaskPageReq req) {
@@ -215,13 +211,8 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         BatchPurchaseConsignmentOrdersReq req = buildBatchPurchaseRequest(task);
         IboxApiResponse<Map<String, Object>> purchaseResponse;
         try {
-            purchaseResponse = iboxClient.post(
-                    account.getBearerToken(),
-                    String.format(UrlConstant.BATCH_PURCHASE_CONSIGNMENT_ORDER_URL, account.getIboxUid()),
-                    req,
-                    new com.fasterxml.jackson.core.type.TypeReference<>() {
-                    }
-            );
+            purchaseResponse = iboxClient.post(account.getBearerToken(), String.format(UrlConstant.BATCH_PURCHASE_CONSIGNMENT_ORDER_URL, account.getIboxUid()), req, new com.fasterxml.jackson.core.type.TypeReference<>() {
+            });
         } catch (Exception e) {
             log.warn("【批量购买任务】请求异常, taskId:{}, collectionId:{}", taskId, task.getDigitalCollectionGroupId(), e);
             sleep(task.getIntervalMillis());
@@ -233,6 +224,8 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
             String orderId = String.valueOf(purchaseResponse.getData().get("orderId"));
             // 只有真正成功并拿到订单号时才保存订单记录。
             saveSuccessOrder(task, req, purchaseResponse, orderId);
+            // 成功后再查一次待支付信息，把支付链接打印出来，方便后续付款。
+            logOrderPaymentLink(account, orderId);
             // 使用当前任务快照直接累加已购买数，避免成功后再次查询任务表。
             int nextPurchasedCount = (task.getPurchasedCount() == null ? 0 : task.getPurchasedCount()) + SINGLE_REQUEST_MAX_COUNT;
             boolean reachedTarget = isTargetReached(task.getMaxCount(), nextPurchasedCount);
@@ -251,10 +244,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
                 purchaseTaskService.updateById(update);
             }
 
-            feishuMessageUtil.sendText("iBox批量购买任务成功，任务名称：" + task.getTaskName()
-                    + "，商品名称：" + task.getCollectionName()
-                    + "，商品ID：" + task.getDigitalCollectionGroupId()
-                    + "，订单ID：" + orderId);
+            feishuMessageUtil.sendText("iBox批量购买任务成功，任务名称：" + task.getTaskName() + "，商品名称：" + task.getCollectionName() + "，商品ID：" + task.getDigitalCollectionGroupId() + "，订单ID：" + orderId);
         }
 
         sleep(task.getIntervalMillis());
@@ -280,20 +270,13 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
      * 2. 返回体里存在有效 orderId
      */
     private boolean isPurchaseSuccess(IboxApiResponse<Map<String, Object>> purchaseResponse) {
-        return purchaseResponse != null
-                && purchaseResponse.getCode() != null
-                && purchaseResponse.getCode() == 0
-                && purchaseResponse.getData() != null
-                && purchaseResponse.getData().get("orderId") != null;
+        return purchaseResponse != null && purchaseResponse.getCode() != null && purchaseResponse.getCode() == 0 && purchaseResponse.getData() != null && purchaseResponse.getData().get("orderId") != null;
     }
 
     /**
      * 仅在购买成功时保存订单记录。
      */
-    private void saveSuccessOrder(PurchaseTaskEntity task,
-                                  BatchPurchaseConsignmentOrdersReq req,
-                                  IboxApiResponse<Map<String, Object>> purchaseResponse,
-                                  String orderId) {
+    private void saveSuccessOrder(PurchaseTaskEntity task, BatchPurchaseConsignmentOrdersReq req, IboxApiResponse<Map<String, Object>> purchaseResponse, String orderId) {
         PurchaseOrderEntity order = new PurchaseOrderEntity();
         order.setTaskId(task.getId());
         order.setAccountId(task.getAccountId());
@@ -306,6 +289,25 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         order.setSubmittedAt(LocalDateTime.now());
         order.setFinishedAt(LocalDateTime.now());
         purchaseOrderService.save(order);
+    }
+
+    /**
+     * 批量购买成功后查询待支付订单信息，并打印支付链接。
+     */
+    private void logOrderPaymentLink(IboxAccountEntity account, String orderId) {
+        if (account == null || orderId == null || orderId.isBlank()) {
+            return;
+        }
+        try {
+            IboxApiResponse<OrderPaymentInfoRes> paymentInfoResponse = iboxClient.get(account.getBearerToken(), String.format(UrlConstant.ORDER_PAYMENT_INFO_URL, orderId, 0), null, OrderPaymentInfoRes.class);
+            if (paymentInfoResponse == null || paymentInfoResponse.getCode() == null || paymentInfoResponse.getCode() != 0 || paymentInfoResponse.getData() == null) {
+                log.warn("【批量购买任务】获取订单支付信息失败, orderId:{}, response:{}", orderId, JSONObject.toJSONString(paymentInfoResponse));
+                return;
+            }
+            log.info("【批量购买任务】待支付订单链接, orderId:{}, paymentPlatformCode:{}, link:{}", orderId, paymentInfoResponse.getData().getPaymentPlatformCode(), paymentInfoResponse.getData().getLink());
+        } catch (Exception e) {
+            log.warn("【批量购买任务】获取订单支付信息异常, orderId:{}", orderId, e);
+        }
     }
 
     /**
