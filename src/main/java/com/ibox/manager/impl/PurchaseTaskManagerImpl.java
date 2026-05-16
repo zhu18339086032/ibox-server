@@ -48,20 +48,24 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
- * 批量购买任务服务实现类
+ * 批量购买任务服务实现类。
  */
 @Slf4j
 @Service
 public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
 
     /**
-     * 单次批量购买请求固定只尝试购买 1 个，
-     * 任务总购买数由 PurchaseTaskEntity.maxCount 控制。
+     * 每个账号每分钟固定允许 10 次有效请求。
+     */
+    private static final int REQUESTS_PER_ACCOUNT_PER_MINUTE = 10;
+
+    /**
+     * 单次批量购买请求固定只尝试购买 1 个。
      */
     private static final int SINGLE_REQUEST_MAX_COUNT = 1;
 
     /**
-     * 记录每个任务当前轮换到的账号下标，避免每轮都从第一个账号开始。
+     * 记录每个任务当前轮换到的账号下标。
      */
     private final Map<Long, AtomicInteger> taskAccountIndexMap = new ConcurrentHashMap<>();
 
@@ -95,7 +99,6 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         queryWrapper.like(StringUtils.hasText(req.getTaskName()), PurchaseTaskEntity::getTaskName, req.getTaskName());
         queryWrapper.eq(req.getStatus() != null, PurchaseTaskEntity::getStatus, req.getStatus());
         queryWrapper.eq(req.getRunning() != null, PurchaseTaskEntity::getRunning, req.getRunning());
-        // 字符串方案下，账号筛选使用 FIND_IN_SET，兼容一个任务多个账号。
         queryWrapper.apply(req.getAccountId() != null, "FIND_IN_SET({0}, account_ids)", req.getAccountId());
         queryWrapper.orderByDesc(PurchaseTaskEntity::getId);
         IPage<PurchaseTaskEntity> page = purchaseTaskService.page(new Page<>(req.getPageNum(), req.getPageSize()), queryWrapper);
@@ -105,10 +108,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
     @Override
     public PurchaseTaskRes getById(Long id) {
         PurchaseTaskEntity entity = purchaseTaskService.getById(id);
-        if (entity == null) {
-            return null;
-        }
-        return buildRes(entity);
+        return entity == null ? null : buildRes(entity);
     }
 
     @Override
@@ -220,20 +220,21 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         return res;
     }
 
+    /**
+     * 每轮需要拿到“账号数 * 10”次有效请求。
+     * 只有真正拿到 iBox 业务响应的请求才计入分钟额度，代理超时、异常、null 响应都不计数。
+     */
     private void executeTaskLoop(Long taskId) {
-        // 每轮只查询一次任务配置，既能感知任务最新状态，也避免成功路径重复查库。
         PurchaseTaskEntity task = purchaseTaskService.getById(taskId);
         if (task == null) {
             taskAccountIndexMap.remove(taskId);
             purchaseTaskRuntimeManager.stop(taskId);
             return;
         }
-        // 任务被停用后不再继续执行购买。
         if (task.getStatus() == null || task.getStatus() != 1) {
             stopTask(taskId);
             return;
         }
-        // 已购买数达到目标数后自动停任务。
         if (isTargetReached(task)) {
             stopTask(taskId);
             return;
@@ -242,25 +243,78 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         List<Long> accountIds = parseAccountIds(task.getAccountIds());
         if (CollectionUtils.isEmpty(accountIds)) {
             log.warn("【批量购买任务】未配置可用账号，taskId:{}", taskId);
-            sleep(task.getIntervalMillis());
+            sleep(1000L);
             return;
         }
 
-        IboxAccountEntity account = getNextAccount(taskId, accountIds);
-        if (account == null) {
-            log.warn("【批量购买任务】本轮未获取到有效账号，taskId:{}, accountIds:{}", taskId, task.getAccountIds());
-            sleep(task.getIntervalMillis());
-            return;
-        }
-        if (!StringUtils.hasText(account.getBearerToken())) {
-            log.warn("【批量购买任务】账号Token为空，跳过本轮，taskId:{}, accountId:{}", taskId, account.getId());
-            sleep(task.getIntervalMillis());
-            return;
+        long intervalMillis = normalizeInterval(task.getIntervalMillis());
+        int targetValidRequestCount = accountIds.size() * REQUESTS_PER_ACCOUNT_PER_MINUTE;
+        long cycleStartMillis = System.currentTimeMillis();
+        int validRequestCount = 0;
+        int purchasedCount = task.getPurchasedCount() == null ? 0 : task.getPurchasedCount();
+
+        while (validRequestCount < targetValidRequestCount) {
+            if (isTargetReached(task.getMaxCount(), purchasedCount)) {
+                stopTask(taskId);
+                return;
+            }
+
+            IboxAccountEntity account = getNextAccount(taskId, accountIds);
+            if (account == null) {
+                log.warn("【批量购买任务】本轮未获取到有效账号，taskId:{}, accountIds:{}", taskId, task.getAccountIds());
+                sleep(intervalMillis);
+                continue;
+            }
+            if (!StringUtils.hasText(account.getBearerToken())) {
+                log.warn("【批量购买任务】账号Token为空，跳过本次请求，taskId:{}, accountId:{}", taskId, account.getId());
+                sleep(intervalMillis);
+                continue;
+            }
+
+            try {
+                PurchaseResult purchaseResult = doPurchase(task, account);
+                if (purchaseResult.validRequest) {
+                    validRequestCount++;
+                }
+                if (purchaseResult.success) {
+                    purchasedCount++;
+                    updatePurchasedCount(taskId, purchasedCount);
+                    feishuMessageUtil.sendText("iBox批量购买任务成功，任务名称：" + task.getTaskName()
+                            + "，商品名称：" + task.getCollectionName()
+                            + "，商品ID：" + task.getDigitalCollectionGroupId()
+                            + "，账号ID：" + account.getId()
+                            + "，订单ID：" + purchaseResult.orderId);
+                    if (isTargetReached(task.getMaxCount(), purchasedCount)) {
+                        stopTask(taskId);
+                        return;
+                    }
+                }
+            } catch (Exception e) {
+                // 单次异常不计入有效请求数，继续补发下一次请求。
+                log.warn("【批量购买任务】请求处理异常，taskId:{}, accountId:{}, collectionId:{}", taskId, account.getId(), task.getDigitalCollectionGroupId(), e);
+            }
+
+            if (validRequestCount < targetValidRequestCount) {
+                sleep(intervalMillis);
+            }
         }
 
+        long activeMillis = System.currentTimeMillis() - cycleStartMillis;
+        long restMillis = Math.max(60000L - activeMillis, 0L);
+        if (restMillis > 0) {
+            log.info("【批量购买任务】本轮有效请求完成，taskId:{}, validRequestCount:{}, activeMillis:{}, restMillis:{}",
+                    taskId, validRequestCount, activeMillis, restMillis);
+            sleep(restMillis);
+        }
+    }
+
+    /**
+     * 执行一次批量购买请求。
+     */
+    private PurchaseResult doPurchase(PurchaseTaskEntity task, IboxAccountEntity account) {
         BatchPurchaseConsignmentOrdersReq req = buildBatchPurchaseRequest(task);
-        IboxApiResponse<Map<String, Object>> purchaseResponse;
         ProxyInfo proxyInfo = iboxProxyService.getNextConfigProxy();
+        IboxApiResponse<Map<String, Object>> purchaseResponse;
         try {
             purchaseResponse = iboxClient.post(
                     account.getBearerToken(),
@@ -268,54 +322,34 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
                     req,
                     new TypeReference<>() {
                     }
-                    , proxyInfo
+//                    , proxyInfo
             );
         } catch (Exception e) {
-            // 购买异常只影响当前轮次，避免因为单次异常导致整个循环中断。
-            log.warn("【批量购买任务】请求异常，taskId:{}, accountId:{}, collectionId:{}", taskId, account.getId(), task.getDigitalCollectionGroupId(), e);
-//            sleep(task.getIntervalMillis());
-            return;
+            log.warn("【批量购买任务】请求异常，不计入有效请求，taskId:{}, accountId:{}, collectionId:{}",
+                    task.getId(), account.getId(), task.getDigitalCollectionGroupId(), e);
+            return PurchaseResult.invalid();
         }
 
-        log.info("【批量购买任务】响应结果，taskId:{}, accountId:{}, result:{}", taskId, account.getId(), JSONObject.toJSONString(purchaseResponse));
-        if (isPurchaseSuccess(purchaseResponse)) {
-            String orderId = String.valueOf(purchaseResponse.getData().get("orderId"));
-            // 只有真正成功并拿到订单号时才保存订单记录。
-            saveSuccessOrder(task, account, req, purchaseResponse, orderId);
-            // 成功后查询一次待支付信息，并打印支付链接。
-            logOrderPaymentLink(account, orderId);
-            // 使用当前任务快照直接累加已购买数，避免成功后再次查询任务表。
-            int nextPurchasedCount = (task.getPurchasedCount() == null ? 0 : task.getPurchasedCount()) + SINGLE_REQUEST_MAX_COUNT;
-            boolean reachedTarget = isTargetReached(task.getMaxCount(), nextPurchasedCount);
-
-            if (reachedTarget) {
-                PurchaseTaskEntity update = new PurchaseTaskEntity();
-                update.setId(taskId);
-                update.setPurchasedCount(nextPurchasedCount);
-                update.setRunning(0);
-                purchaseTaskService.updateById(update);
-                taskAccountIndexMap.remove(taskId);
-                purchaseTaskRuntimeManager.stop(taskId);
-            } else {
-                PurchaseTaskEntity update = new PurchaseTaskEntity();
-                update.setId(taskId);
-                update.setPurchasedCount(nextPurchasedCount);
-                purchaseTaskService.updateById(update);
-            }
-
-            feishuMessageUtil.sendText("iBox批量购买任务成功，任务名称：" + task.getTaskName()
-                    + "，商品名称：" + task.getCollectionName()
-                    + "，商品ID：" + task.getDigitalCollectionGroupId()
-                    + "，账号ID：" + account.getId()
-                    + "，订单ID：" + orderId);
+        log.info("【批量购买任务】响应结果，taskId:{}, accountId:{}, result:{}", task.getId(), account.getId(), JSONObject.toJSONString(purchaseResponse));
+        if (purchaseResponse == null || purchaseResponse.getCode() == null) {
+            log.warn("【批量购买任务】响应为空或缺少业务码，不计入有效请求，taskId:{}, accountId:{}",
+                    task.getId(), account.getId());
+            return PurchaseResult.invalid();
         }
 
-        sleep(task.getIntervalMillis());
+        if (!isPurchaseSuccess(purchaseResponse)) {
+            // 只要拿到了明确的业务响应，就算一次有效请求，即使是“暂无可购买”。
+            return PurchaseResult.validFail();
+        }
+
+        String orderId = String.valueOf(purchaseResponse.getData().get("orderId"));
+        saveSuccessOrder(task, account, req, purchaseResponse, orderId);
+        logOrderPaymentLink(account, orderId);
+        return PurchaseResult.success(orderId);
     }
 
     /**
      * 构建单次批量购买请求。
-     * 这里固定单次只买 1 个，避免把任务总目标数直接透传给接口。
      */
     private BatchPurchaseConsignmentOrdersReq buildBatchPurchaseRequest(PurchaseTaskEntity task) {
         BatchPurchaseConsignmentOrdersReq req = new BatchPurchaseConsignmentOrdersReq();
@@ -328,9 +362,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
     }
 
     /**
-     * 购买成功必须同时满足：
-     * 1. 接口返回 code == 0
-     * 2. 返回体里存在有效 orderId
+     * 购买成功必须同时满足：code == 0 且存在 orderId。
      */
     private boolean isPurchaseSuccess(IboxApiResponse<Map<String, Object>> purchaseResponse) {
         return purchaseResponse != null
@@ -359,7 +391,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
     }
 
     /**
-     * 批量购买成功后查询待支付订单信息，并打印支付链接。
+     * 购买成功后查询待支付订单信息，并打印支付链接。
      */
     private void logOrderPaymentLink(IboxAccountEntity account, String orderId) {
         if (account == null || !StringUtils.hasText(orderId)) {
@@ -388,7 +420,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
     }
 
     /**
-     * 判断任务是否已达到目标购买数。
+     * 判断任务是否已经达到目标购买数。
      */
     private boolean isTargetReached(PurchaseTaskEntity task) {
         return isTargetReached(task.getMaxCount(), task.getPurchasedCount() == null ? 0 : task.getPurchasedCount());
@@ -403,7 +435,17 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
     }
 
     /**
-     * 将任务运行状态置为停止，并终止后台循环。
+     * 更新任务已购买数。
+     */
+    private void updatePurchasedCount(Long taskId, int purchasedCount) {
+        PurchaseTaskEntity update = new PurchaseTaskEntity();
+        update.setId(taskId);
+        update.setPurchasedCount(purchasedCount);
+        purchaseTaskService.updateById(update);
+    }
+
+    /**
+     * 将任务状态置为停止，并终止后台循环。
      */
     private void stopTask(Long taskId) {
         PurchaseTaskEntity update = new PurchaseTaskEntity();
@@ -415,7 +457,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
     }
 
     /**
-     * 从任务配置的账号列表中按顺序轮换选择本轮账号。
+     * 从任务配置的账号列表中按顺序轮换选择本次账号。
      */
     private IboxAccountEntity getNextAccount(Long taskId, List<Long> accountIds) {
         if (CollectionUtils.isEmpty(accountIds)) {
@@ -449,7 +491,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
     }
 
     /**
-     * 将账号ID列表转换成逗号分隔字符串，顺便去重并过滤空值。
+     * 将账号ID列表转换为逗号分隔字符串，并去重和过滤空值。
      */
     private String joinAccountIds(List<Long> accountIds) {
         if (CollectionUtils.isEmpty(accountIds)) {
@@ -462,7 +504,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
     }
 
     /**
-     * 将逗号分隔的账号ID字符串解析为列表，保留原有顺序用于轮换。
+     * 将逗号分隔的账号ID字符串解析为列表，保留原有顺序。
      */
     private List<Long> parseAccountIds(String accountIds) {
         if (!StringUtils.hasText(accountIds)) {
@@ -494,23 +536,26 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         return accountIds.stream()
                 .map(this::getAccount)
                 .filter(Objects::nonNull)
-                .map(account -> {
-                    if (StringUtils.hasText(account.getPhone())) {
-                        return account.getAccountName() + "(" + account.getPhone() + ")";
-                    }
-                    return account.getAccountName() + "(ID:" + account.getId() + ")";
-                })
+                .map(account -> StringUtils.hasText(account.getPhone())
+                        ? account.getAccountName() + "(" + account.getPhone() + ")"
+                        : account.getAccountName() + "(ID:" + account.getId() + ")")
                 .toList();
     }
 
-    private void sleep(Long intervalMillis) {
+    /**
+     * 统一处理休眠，避免线程被中断后继续执行。
+     */
+    private void sleep(long millis) {
         try {
-            Thread.sleep(intervalMillis == null || intervalMillis <= 0 ? 100L : intervalMillis);
+            Thread.sleep(Math.max(millis, 0L));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
     }
 
+    /**
+     * 单个任务响应对象构建。
+     */
     private PurchaseTaskRes buildRes(PurchaseTaskEntity entity) {
         PurchaseTaskRes res = new PurchaseTaskRes();
         BeanUtils.copyProperties(entity, res);
@@ -518,5 +563,39 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         res.setAccountIds(accountIds);
         res.setAccountNames(buildAccountNames(accountIds));
         return res;
+    }
+
+    /**
+     * 一次购买执行的返回结果。
+     */
+    private static class PurchaseResult {
+        private final boolean success;
+        private final boolean validRequest;
+        private final String orderId;
+
+        private PurchaseResult(boolean success, boolean validRequest, String orderId) {
+            this.success = success;
+            this.validRequest = validRequest;
+            this.orderId = orderId;
+        }
+
+        private static PurchaseResult success(String orderId) {
+            return new PurchaseResult(true, true, orderId);
+        }
+
+        private static PurchaseResult validFail() {
+            return new PurchaseResult(false, true, null);
+        }
+
+        private static PurchaseResult invalid() {
+            return new PurchaseResult(false, false, null);
+        }
+    }
+
+    /**
+     * 将任务间隔归一化，避免出现 0 或负值导致调度异常。
+     */
+    private long normalizeInterval(Long intervalMillis) {
+        return intervalMillis == null || intervalMillis <= 0 ? 1000L : intervalMillis;
     }
 }
