@@ -12,6 +12,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 飞书消息工具类
@@ -21,9 +22,14 @@ import java.util.Map;
 public class FeishuMessageUtil {
 
     /**
-     * 飞书机器人webhook地址
+     * 飞书机器人 webhook 地址
      */
     private static final String FEISHU_WEBHOOK_URL = "https://open.feishu.cn/open-apis/bot/v2/hook/520f8052-58c8-49db-bd53-71fe4330a535";
+
+    /**
+     * 文本消息去重缓存，key 为业务唯一键，value 为最近一次发送时间戳
+     */
+    private static final Map<String, Long> TEXT_SEND_CACHE = new ConcurrentHashMap<>();
 
     private final RestTemplate restTemplate;
 
@@ -47,6 +53,35 @@ public class FeishuMessageUtil {
         body.put("msg_type", "text");
         body.put("content", content);
         postMessage(body, JSONObject.toJSONString(text));
+    }
+
+    /**
+     * 发送带去重时间窗的文本消息。
+     * 相同 key 在指定分钟数内只发送一次，避免短时间重复通知。
+     *
+     * @param text 消息内容
+     * @param key 去重业务键
+     * @param minutes 去重时间窗，单位分钟
+     */
+    public void sendText(String text, String key, int minutes) {
+        if (minutes <= 0 || key == null || key.isBlank()) {
+            sendText(text);
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        long windowMillis = minutes * 60L * 1000L;
+        Long lastSendTime = TEXT_SEND_CACHE.get(key);
+        if (lastSendTime != null && now - lastSendTime < windowMillis) {
+            log.info("【飞书通知】命中去重时间窗，跳过发送，key:{}, minutes:{}, remainMs:{}",
+                    key,
+                    minutes,
+                    windowMillis - (now - lastSendTime));
+            return;
+        }
+
+        TEXT_SEND_CACHE.put(key, now);
+        sendText(text);
     }
 
     /**

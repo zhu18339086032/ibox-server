@@ -28,10 +28,13 @@
     </scm>
     <properties>
         <java.version>21</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <mybatis-plus.version>3.5.15</mybatis-plus.version>
         <fastjson.version>1.2.83</fastjson.version>
         <springdoc.version>3.0.3</springdoc.version>
     </properties>
+
     <dependencies>
 
         <dependency>

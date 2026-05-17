@@ -74,7 +74,7 @@ public class IboxProxyServiceImpl implements IboxProxyService {
         int index = Math.floorMod(CONFIG_PROXY_INDEX.getAndIncrement(), configProxies.size());
         String proxyText = configProxies.get(index);
         if (Objects.equals(proxyText,"local")){
-            log.info(proxyText);
+//            log.info(proxyText);
             return null;
         }
 //        log.info("【代理服务】获取配置代理:{}", proxyText);

@@ -225,13 +225,13 @@ public abstract class AbstractIboxClient implements IboxClient {
             ResponseEntity<String> responseEntity = executeTemplate.exchange(uri, method, entity, String.class);
             return responseEntity.getBody() == null ? "" : responseEntity.getBody();
         } catch (RestClientException e) {
-            if (e.getMessage().contains("429") && proxyInfo != null) {
-                log.info("【iBox客户端】请求iBox接口失败:【429】--------------{}|{}", proxyInfo.getHost(), proxyInfo.getUsername());
-            } else if (e.getMessage().contains("Read timed out") || e.getMessage().contains("Connect timed out")) {
-                log.info("【iBox客户端】请求iBox接口失败:【超时】--------------{}|{}", proxyInfo.getHost(), proxyInfo.getUsername());
-            } else {
-                log.info("【iBox客户端】解析iBox接口响应失败:{}", e.getMessage());
-            }
+//            if (e.getMessage().contains("429") && proxyInfo != null) {
+//                log.info("【iBox客户端】请求iBox接口失败:【429】--------------{}|{}", proxyInfo.getHost(), proxyInfo.getUsername());
+//            } else if (e.getMessage().contains("Read timed out") || e.getMessage().contains("Connect timed out")) {
+//                log.info("【iBox客户端】请求iBox接口失败:【超时】--------------{}|{}", proxyInfo.getHost(), proxyInfo.getUsername());
+//            } else {
+//                log.info("【iBox客户端】解析iBox接口响应失败:{}", e.getMessage());
+//            }
             return "";
         }
     }

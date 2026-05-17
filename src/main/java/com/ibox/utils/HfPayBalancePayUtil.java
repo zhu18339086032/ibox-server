@@ -1,6 +1,7 @@
 package com.ibox.utils;
 
 import com.alibaba.fastjson.JSONObject;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -17,13 +18,12 @@ import java.security.GeneralSecurityException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * 汇付余额支付工具类。
  * 传入 uuid 和支付密码，即可生成加密后的请求体、请求头以及签名值，并直接发起请求。
  */
+@Slf4j
 public final class HfPayBalancePayUtil {
 
     /**
@@ -45,16 +45,6 @@ public final class HfPayBalancePayUtil {
      * 固定设备信息。
      */
     private static final String DEV_INFO_JSON = "{\"devType\":\"2\",\"devSysType\":\"H5\",\"mobileFlag\":\"Y\"}";
-
-    /**
-     * 固定支付发起方类型。
-     */
-    private static final String PAYMENT_INITIATOR_TYPE = "0";
-
-    /**
-     * 支付页面链接中的 uuid 提取规则。
-     */
-    private static final Pattern PAY_LINK_UUID_PATTERN = Pattern.compile("[?&]uuid=([^&]+)");
 
     /**
      * 汇付余额支付 HTTP 客户端。
@@ -95,6 +85,8 @@ public final class HfPayBalancePayUtil {
      * @return 接口原始响应文本
      */
     public static String balancePay(String uuid, String password) {
+        log.info("【汇付余额支付】开始构建支付请求, uuid:{}, passwordLength:{}", maskUuid(uuid), password == null ? 0 : password.length());
+
         BalancePayRequest request = build(uuid, password);
 
         HttpHeaders headers = new HttpHeaders();
@@ -102,8 +94,24 @@ public final class HfPayBalancePayUtil {
         request.headers().forEach(headers::set);
 
         HttpEntity<String> entity = new HttpEntity<>(request.bodyJson(), headers);
-        ResponseEntity<String> response = REST_TEMPLATE.postForEntity(request.url(), entity, String.class);
-        return response.getBody();
+
+        log.info("【汇付余额支付】请求参数已生成, url:{}, merCustId:{}, encryptedPassword:{}, headers:{}, body:{}",
+                request.url(),
+                request.merCustId(),
+                maskEncryptedPassword(request.encryptedPassword()),
+                JSONObject.toJSONString(request.headers()),
+                request.bodyJson());
+
+        try {
+            log.info("【汇付余额支付】开始发起请求, uuid:{}, merCustId:{}", maskUuid(uuid), request.merCustId());
+            ResponseEntity<String> response = REST_TEMPLATE.postForEntity(request.url(), entity, String.class);
+            String responseBody = response.getBody();
+            log.info("【汇付余额支付】请求完成, statusCode:{}, response:{}", response.getStatusCode().value(), responseBody);
+            return responseBody;
+        } catch (Exception e) {
+            log.error("【汇付余额支付】请求异常, uuid:{}, merCustId:{}, url:{}", maskUuid(uuid), request.merCustId(), request.url(), e);
+            throw e;
+        }
     }
 
     /**
@@ -128,7 +136,9 @@ public final class HfPayBalancePayUtil {
             Cipher cipher = Cipher.getInstance("DESede/CBC/PKCS5Padding");
             cipher.init(Cipher.ENCRYPT_MODE, keySpec, new IvParameterSpec(IV));
             byte[] encrypted = cipher.doFinal(password.getBytes(StandardCharsets.UTF_8));
-            return java.util.Base64.getEncoder().encodeToString(encrypted);
+            String result = java.util.Base64.getEncoder().encodeToString(encrypted);
+            log.info("【汇付余额支付】密码加密完成, uuid:{}, encryptedPassword:{}", maskUuid(uuid), maskEncryptedPassword(result));
+            return result;
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("3DES 加密支付密码失败", e);
         }
@@ -159,7 +169,9 @@ public final class HfPayBalancePayUtil {
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(SIGN_KEY, "HmacSHA256"));
             byte[] digest = mac.doFinal(signStr.toString().getBytes(StandardCharsets.UTF_8));
-            return toHexLower(digest);
+            String checkValue = toHexLower(digest);
+            log.info("【汇付余额支付】check_value 生成完成, signSource:{}, checkValue:{}", signStr, checkValue);
+            return checkValue;
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("生成 check_value 失败", e);
         }
@@ -175,41 +187,18 @@ public final class HfPayBalancePayUtil {
         if (uuid == null || uuid.isBlank()) {
             throw new IllegalArgumentException("uuid 不能为空");
         }
-        return uuid.length() <= 16 ? uuid : uuid.substring(0, 16);
+        String merCustId = uuid.length() <= 25 ? uuid : uuid.substring(9, 25);
+        log.info("【汇付余额支付】商户号生成完成, uuid:{}, merCustId:{}", maskUuid(uuid), merCustId);
+        return merCustId;
     }
 
-    /**
-     * 生成支付请求时需要的 paymentInitiatorType。
-     *
-     * @return 固定值 0
-     */
-    public static String getPaymentInitiatorType() {
-        return PAYMENT_INITIATOR_TYPE;
-    }
-
-    /**
-     * 从支付链接中提取 uuid。
-     *
-     * @param link 支付页面链接
-     * @return uuid，提取失败返回 null
-     */
-    public static String extractUuidFromLink(String link) {
-        if (link == null || link.isBlank()) {
-            return null;
-        }
-        Matcher matcher = PAY_LINK_UUID_PATTERN.matcher(link);
-        if (!matcher.find()) {
-            return null;
-        }
-        return matcher.group(1);
-    }
 
     /**
      * 本地联调入口。
      * 可直接修改 uuid 和 password 进行测试。
      */
     public static void main(String[] args) {
-        String uuid = "hfpwallet6666000162413365pay309cc39b-a573-4013-93de-bb210a84a5f2";
+        String uuid = "hfpwallet6666000162413365payb3bd8ef8-3f38-4b05-a45d-60510abbdc04";
         String password = "347364";
 
         BalancePayRequest request = build(uuid, password);
@@ -237,6 +226,32 @@ public final class HfPayBalancePayUtil {
             builder.append(Character.forDigit(b & 0xF, 16));
         }
         return builder.toString();
+    }
+
+    /**
+     * 脱敏显示 uuid，避免日志打印完整敏感信息。
+     */
+    private static String maskUuid(String uuid) {
+        if (uuid == null || uuid.isBlank()) {
+            return "-";
+        }
+        if (uuid.length() <= 12) {
+            return uuid;
+        }
+        return uuid.substring(0, 8) + "..." + uuid.substring(uuid.length() - 4);
+    }
+
+    /**
+     * 脱敏显示加密后的支付密码，便于排查但避免完整暴露。
+     */
+    private static String maskEncryptedPassword(String encryptedPassword) {
+        if (encryptedPassword == null || encryptedPassword.isBlank()) {
+            return "-";
+        }
+        if (encryptedPassword.length() <= 8) {
+            return encryptedPassword;
+        }
+        return encryptedPassword.substring(0, 4) + "..." + encryptedPassword.substring(encryptedPassword.length() - 4);
     }
 
     /**

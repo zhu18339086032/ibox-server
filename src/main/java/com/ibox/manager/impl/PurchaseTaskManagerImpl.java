@@ -37,12 +37,7 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -57,7 +52,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
     /**
      * 每个账号每分钟固定允许 10 次有效请求。
      */
-    private static final int REQUESTS_PER_ACCOUNT_PER_MINUTE = 10;
+    private static final int REQUESTS_PER_ACCOUNT_PER_MINUTE = 9;
 
     /**
      * 单次批量购买请求固定只尝试购买 1 个。
@@ -287,11 +282,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
                 if (purchaseResult.success) {
                     purchasedCount++;
                     updatePurchasedCount(taskId, purchasedCount);
-                    feishuMessageUtil.sendText("iBox批量购买任务成功，任务名称：" + task.getTaskName()
-                            + "，商品名称：" + task.getCollectionName()
-                            + "，商品ID：" + task.getDigitalCollectionGroupId()
-                            + "，账号ID：" + account.getId()
-                            + "，订单ID：" + purchaseResult.orderId);
+                    feishuMessageUtil.sendText("iBox批量购买任务成功，任务名称：" + task.getTaskName() + "，商品名称：" + task.getCollectionName() + "，商品ID：" + task.getDigitalCollectionGroupId() + "，账号ID：" + account.getId() + "，订单ID：" + purchaseResult.orderId);
                     if (isTargetReached(task.getMaxCount(), purchasedCount)) {
                         stopTask(taskId);
                         return;
@@ -309,8 +300,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         long activeMillis = System.currentTimeMillis() - cycleStartMillis;
         long restMillis = Math.max(60000L - activeMillis, 0L);
         if (restMillis > 0) {
-            log.info("【批量购买任务】本轮有效请求完成，taskId:{}, validRequestCount:{}, activeMillis:{}, restMillis:{}",
-                    taskId, validRequestCount, activeMillis, restMillis);
+            log.info("【批量购买任务】本轮有效请求完成，taskId:{}, validRequestCount:{}, activeMillis:{}, restMillis:{}", taskId, validRequestCount, activeMillis, restMillis);
             sleep(restMillis);
         }
     }
@@ -321,27 +311,23 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
     private PurchaseResult doPurchase(PurchaseTaskEntity task, IboxAccountEntity account) {
         BatchPurchaseConsignmentOrdersReq req = buildBatchPurchaseRequest(task);
         IboxApiResponse<Map<String, Object>> purchaseResponse;
+        ProxyInfo nextConfigProxy = iboxProxyService.getNextConfigProxy();
         try {
-            purchaseResponse = iboxClient.post(
-                    account.getBearerToken(),
-                    String.format(UrlConstant.BATCH_PURCHASE_CONSIGNMENT_ORDER_URL, account.getIboxUid()),
-                    req,
-                    new TypeReference<>() {
-                    }
-            );
+            purchaseResponse = iboxClient.post(account.getBearerToken(), String.format(UrlConstant.BATCH_PURCHASE_CONSIGNMENT_ORDER_URL, account.getIboxUid()), req, new TypeReference<>() {
+            },nextConfigProxy);
         } catch (Exception e) {
-            log.warn("【批量购买任务】请求异常，不计入有效请求，taskId:{}, accountId:{}, collectionId:{}",
-                    task.getId(), account.getId(), task.getDigitalCollectionGroupId(), e);
+            log.warn("【批量购买任务】请求异常，不计入有效请求，taskId:{}, accountId:{}, collectionId:{}", task.getId(), account.getId(), task.getDigitalCollectionGroupId(), e);
             return PurchaseResult.invalid();
         }
 
         log.info("【批量购买任务】响应结果，taskId:{}, accountId:{}, result:{}", task.getId(), account.getId(), JSONObject.toJSONString(purchaseResponse));
         if (purchaseResponse == null || purchaseResponse.getCode() == null) {
-            log.warn("【批量购买任务】响应为空或缺少业务码，不计入有效请求，taskId:{}, accountId:{}",
-                    task.getId(), account.getId());
+            log.warn("【批量购买任务】响应为空或缺少业务码，不计入有效请求，taskId:{}, accountId:{}", task.getId(), account.getId());
             return PurchaseResult.invalid();
         }
-
+        if (purchaseResponse.getMessage().contains("未支付")) {
+            feishuMessageUtil.sendText(account.getAccountName() + ":有待支付订单", account.getId() + "buy", 3);
+        }
         if (!isPurchaseSuccess(purchaseResponse)) {
             return PurchaseResult.validFail();
         }
@@ -369,11 +355,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
      * 购买成功必须同时满足：code == 0 且存在 orderId。
      */
     private boolean isPurchaseSuccess(IboxApiResponse<Map<String, Object>> purchaseResponse) {
-        return purchaseResponse != null
-                && purchaseResponse.getCode() != null
-                && purchaseResponse.getCode() == 0
-                && purchaseResponse.getData() != null
-                && purchaseResponse.getData().get("orderId") != null;
+        return purchaseResponse != null && purchaseResponse.getCode() != null && purchaseResponse.getCode() == 0 && purchaseResponse.getData() != null && purchaseResponse.getData().get("orderId") != null;
     }
 
     /**
@@ -402,26 +384,35 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
             return;
         }
         try {
-            IboxApiResponse<OrderPaymentInfoRes> paymentInfoResponse = iboxClient.get(
-                    account.getBearerToken(),
-                    String.format(UrlConstant.ORDER_PAYMENT_INFO_URL, orderId, 0),
-                    null,
-                    OrderPaymentInfoRes.class
-            );
+            IboxApiResponse<OrderPaymentInfoRes> paymentInfoResponse = iboxClient.get(account.getBearerToken(), String.format(UrlConstant.ORDER_PAYMENT_INFO_URL, orderId, 0), null, OrderPaymentInfoRes.class);
             if (paymentInfoResponse == null || paymentInfoResponse.getCode() == null || paymentInfoResponse.getCode() != 0 || paymentInfoResponse.getData() == null) {
                 log.warn("【批量购买任务】获取订单支付信息失败，orderId:{}, response:{}", orderId, JSONObject.toJSONString(paymentInfoResponse));
                 return;
             }
-            log.info("【批量购买任务】待支付订单链接，orderId:{}, paymentPlatformCode:{}, link:{}",
-                    orderId,
-                    paymentInfoResponse.getData().getPaymentPlatformCode(),
-                    paymentInfoResponse.getData().getLink());
-            String payBody = HfPayBalancePayUtil.balancePay(paymentInfoResponse.getData().getLink(), "347364");
+            log.info("【批量购买任务】待支付订单链接，orderId:{}, paymentPlatformCode:{}, link:{}", orderId, paymentInfoResponse.getData().getPaymentPlatformCode(), paymentInfoResponse.getData().getLink());
+            String payBody = HfPayBalancePayUtil.balancePay(extractUuidFromLink(paymentInfoResponse.getData().getLink()), "347364");
             log.info("【批量购买任务】支付结果：{}", payBody);
         } catch (Exception e) {
             log.warn("【批量购买任务】获取订单支付信息异常，orderId:{}", orderId, e);
         }
     }
+
+    /**
+     * 提取uuid
+     */
+    public static String extractUuidFromLink(String link) {
+        if (link == null || link.isBlank()) {
+            return null;
+        }
+        int idx = link.indexOf("uuid=");
+        if (idx < 0) {
+            return null;
+        }
+        String uuid = link.substring(idx + 5);
+        int end = uuid.indexOf('&');
+        return end >= 0 ? uuid.substring(0, end) : uuid;
+    }
+
 
     /**
      * 判断任务是否已经达到目标购买数。
@@ -509,10 +500,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         if (CollectionUtils.isEmpty(accountIds)) {
             return null;
         }
-        return accountIds.stream()
-                .filter(Objects::nonNull)
-                .map(String::valueOf)
-                .collect(Collectors.collectingAndThen(Collectors.toCollection(LinkedHashSet::new), values -> String.join(",", values)));
+        return accountIds.stream().filter(Objects::nonNull).map(String::valueOf).collect(Collectors.collectingAndThen(Collectors.toCollection(LinkedHashSet::new), values -> String.join(",", values)));
     }
 
     /**
@@ -522,20 +510,14 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         if (!StringUtils.hasText(accountIds)) {
             return new ArrayList<>();
         }
-        return Arrays.stream(accountIds.split(","))
-                .map(String::trim)
-                .filter(StringUtils::hasText)
-                .distinct()
-                .map(value -> {
-                    try {
-                        return Long.valueOf(value);
-                    } catch (NumberFormatException e) {
-                        log.warn("【批量购买任务】解析账号ID失败，value:{}", value);
-                        return null;
-                    }
-                })
-                .filter(Objects::nonNull)
-                .toList();
+        return Arrays.stream(accountIds.split(",")).map(String::trim).filter(StringUtils::hasText).distinct().map(value -> {
+            try {
+                return Long.valueOf(value);
+            } catch (NumberFormatException e) {
+                log.warn("【批量购买任务】解析账号ID失败，value:{}", value);
+                return null;
+            }
+        }).filter(Objects::nonNull).toList();
     }
 
     /**
@@ -545,13 +527,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         if (CollectionUtils.isEmpty(accountIds)) {
             return new ArrayList<>();
         }
-        return accountIds.stream()
-                .map(this::getAccount)
-                .filter(Objects::nonNull)
-                .map(account -> StringUtils.hasText(account.getPhone())
-                        ? account.getAccountName() + "(" + account.getPhone() + ")"
-                        : account.getAccountName() + "(ID:" + account.getId() + ")")
-                .toList();
+        return accountIds.stream().map(this::getAccount).filter(Objects::nonNull).map(account -> StringUtils.hasText(account.getPhone()) ? account.getAccountName() + "(" + account.getPhone() + ")" : account.getAccountName() + "(ID:" + account.getId() + ")").toList();
     }
 
     /**

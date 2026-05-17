@@ -51,7 +51,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
     /**
      * 候选藏品允许下单的最小地板价。
      */
-    private static final BigDecimal MIN_FLOOR_PRICE = new BigDecimal("20");
+    private static final BigDecimal MIN_FLOOR_PRICE = new BigDecimal("40");
 
     /**
      * 首页推荐位固定 areaType。
@@ -187,6 +187,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
 
         for (MatchedMarketCollectionRes matched : candidates) {
             log.info("【批量下单】开始尝试购买藏品:{}, ID:{}, 地板价:{}", matched.getName(), matched.getId(), matched.getFloorPrice());
+            purchaseCount = matched.getFloorPrice().compareTo(MIN_FLOOR_PRICE) <= 0 ? 9 : purchaseCount;
             BatchPurchaseConsignmentOrdersReq req = buildBatchPurchaseRequest(matched.getId(), purchaseCount, resolveMaxSinglePrice(matched.getFloorPrice(), priceLimit), paymentPlatformCode);
 
             long purchaseStartAt = System.nanoTime();
@@ -197,6 +198,9 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
                 log.info("【公告监控耗时】uuid:{}, listCostMs:{}, detailCostMs:{}, parseCostMs:{}, matchCostMs:{}, purchaseCostMs:{}, totalCostMs:{}, candidate:{}", latest.getUuid(), listCostMs, detailCostMs, parseCostMs, matchCostMs, purchaseCostMs, elapsedMs(startAt), matched.getName());
                 notifyOrderSuccess(account, latest, matched, orderUuid);
                 return;
+            }
+            if (purchaseResponse.getMessage().contains("未支付")) {
+                feishuMessageUtil.sendText(account.getAccountName() + ":有待支付订单", account.getId() + "buy", 3);
             }
             log.info("【批量下单】下单失败:{}, purchaseCostMs:{}, candidate:{}", JSONObject.toJSONString(purchaseResponse), purchaseCostMs, matched.getName());
         }
@@ -350,9 +354,6 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
      */
     private boolean isPriceAcceptable(BigDecimal floorPrice, BigDecimal priceLimit) {
         if (floorPrice == null) {
-            return false;
-        }
-        if (floorPrice.compareTo(MIN_FLOOR_PRICE) < 0) {
             return false;
         }
         return priceLimit == null || floorPrice.compareTo(priceLimit) <= 0;
