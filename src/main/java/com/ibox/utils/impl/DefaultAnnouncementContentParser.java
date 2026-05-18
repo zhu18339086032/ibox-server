@@ -8,8 +8,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Default announcement content parser.
@@ -17,29 +15,6 @@ import java.util.regex.Pattern;
 @Slf4j
 @Component
 public class DefaultAnnouncementContentParser implements AnnouncementContentParser {
-
-    /**
-     * Matches collection names wrapped by Chinese title marks.
-     */
-    private static final Pattern COLLECTION_NAME_PATTERN = Pattern.compile("《(.*?)》");
-
-    /**
-     * Splits synthesis content into channel-specific blocks.
-     */
-    private static final Pattern CHANNEL_BLOCK_PATTERN = Pattern.compile(
-            "(通道[一二三四五六七八九十0-9]+(?:（[^）]*）)?)(.*?)(?=通道[一二三四五六七八九十0-9]+(?:（[^）]*）)?|【iBox链盒风险提示】|【iBox链盒郑重提醒广大用户】|$)",
-            Pattern.DOTALL
-    );
-
-    /**
-     * Matches exact holding collection names in announcement text.
-     */
-    private static final Pattern HOLDING_COLLECTION_PATTERN = Pattern.compile("持有藏品《(.*?)》");
-
-    /**
-     * Matches the holding collection description segment.
-     */
-    private static final Pattern HOLDING_SEGMENT_PATTERN = Pattern.compile("持有藏品.*?(?:合成资格|快照时间|合成材料|合成时间|$)", Pattern.DOTALL);
 
     /**
      * Keywords that should be excluded from parse results.
@@ -78,42 +53,11 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
         }
 
         String originalPlainText = toPlainText(content);
-        LinkedHashSet<String> garbageGoods = new LinkedHashSet<>(extractTailGarbageGoods(originalPlainText));
-        String plainText = truncateNoiseTail(originalPlainText);
-        if (plainText.indexOf('《') < 0 && !plainText.contains("持有藏品")) {
+        if (originalPlainText.indexOf('《') < 0 && originalPlainText.indexOf("通道") < 0 && originalPlainText.indexOf("合成材料") < 0 && !originalPlainText.contains("持有藏品")) {
             return Collections.emptyList();
         }
-        Matcher channelMatcher = CHANNEL_BLOCK_PATTERN.matcher(plainText);
-        LinkedHashSet<String> fallbackResult = new LinkedHashSet<>();
-        boolean matchedChannel = false;
-
-        while (channelMatcher.find()) {
-            matchedChannel = true;
-            String channelTitle = channelMatcher.group(1);
-            String channelBlock = truncateNoiseTail(channelMatcher.group(2));
-
-            LinkedHashSet<String> currentNames = new LinkedHashSet<>();
-            currentNames.addAll(filterGarbageGoods(extractHoldingCollectionNames(channelBlock), garbageGoods));
-            currentNames.addAll(filterGarbageGoods(extractCollectionNames(extractMaterialBlock(channelBlock)), garbageGoods));
-            if (currentNames.isEmpty()) {
-                continue;
-            }
-
-            if (isPriorityChannel(channelTitle, channelBlock)) {
-                List<String> priorityResult = new ArrayList<>(currentNames);
-                log.info("【公告内容解析】命中优先通道，优先返回结果:{}", priorityResult);
-                return priorityResult;
-            }
-
-            fallbackResult.addAll(currentNames);
-        }
-
-        List<String> result;
-        if (matchedChannel) {
-            result = new ArrayList<>(fallbackResult);
-        } else {
-            result = new ArrayList<>(new LinkedHashSet<>(filterGarbageGoods(extractCollectionNames(truncateNoiseTail(plainText)), garbageGoods)));
-        }
+        LinkedHashSet<String> garbageGoods = new LinkedHashSet<>(extractTailGarbageGoods(originalPlainText));
+        List<String> result = parseMaterialSegmentsOnly(originalPlainText, garbageGoods);
 
         log.info("【公告内容解析】合成公告解析结果:{}", result);
         return result;
@@ -133,19 +77,52 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     }
 
     /**
-     * Converts rich-text content into plain text for regex processing.
+     * Converts rich-text content into plain text for lightweight scanning.
      */
     private String toPlainText(String content) {
-        return content
-                .replaceAll("(?i)<br\\s*/?>", "\n")
-                .replaceAll("(?i)</p>", "\n")
-                .replaceAll("(?i)</li>", "\n")
-                .replaceAll("(?i)</ul>", "\n")
-                .replaceAll("<[^>]+>", "")
+        String normalized = content
+                .replace("<br>", "\n")
+                .replace("<br/>", "\n")
+                .replace("<br />", "\n")
+                .replace("<BR>", "\n")
+                .replace("<BR/>", "\n")
+                .replace("<BR />", "\n")
+                .replace("</p>", "\n")
+                .replace("</P>", "\n")
+                .replace("</li>", "\n")
+                .replace("</LI>", "\n")
+                .replace("</ul>", "\n")
+                .replace("</UL>", "\n")
                 .replace("&nbsp;", " ")
                 .replace("　", " ")
-                .replace("\r", "")
-                .replaceAll("\\n{2,}", "\n");
+                .replace("\r", "");
+        StringBuilder builder = new StringBuilder(normalized.length());
+        boolean inTag = false;
+        boolean previousNewline = false;
+        for (int i = 0; i < normalized.length(); i++) {
+            char current = normalized.charAt(i);
+            if (current == '<') {
+                inTag = true;
+                continue;
+            }
+            if (current == '>') {
+                inTag = false;
+                continue;
+            }
+            if (inTag) {
+                continue;
+            }
+            if (current == '\n') {
+                if (!previousNewline) {
+                    builder.append('\n');
+                    previousNewline = true;
+                }
+                continue;
+            }
+            previousNewline = false;
+            builder.append(current);
+        }
+        return builder.toString();
     }
 
     /**
@@ -171,12 +148,36 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     }
 
     /**
-     * Detects whether the channel should be prioritized.
+     * Parses only the material segments from synthesis announcements.
      */
-    private boolean isPriorityChannel(String channelTitle, String channelBlock) {
-        return channelTitle.contains("抢合")
-                || channelBlock.contains("抢合")
-                || channelBlock.contains("限量");
+    private List<String> parseMaterialSegmentsOnly(String plainText, LinkedHashSet<String> garbageGoods) {
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+        String truncatedText = truncateNoiseTail(plainText);
+        int searchFrom = 0;
+        while (searchFrom >= 0 && searchFrom < truncatedText.length()) {
+            int channelStart = findNextChannelStart(truncatedText, searchFrom);
+            if (channelStart < 0) {
+                break;
+            }
+            int channelBodyStart = findChannelBodyStart(truncatedText, channelStart);
+            int nextChannelStart = findNextChannelStart(truncatedText, channelBodyStart);
+            String channelBlock = nextChannelStart < 0
+                    ? truncatedText.substring(channelBodyStart)
+                    : truncatedText.substring(channelBodyStart, nextChannelStart);
+            String materialBlock = extractMaterialBlock(channelBlock);
+            if (materialBlock.isBlank()) {
+                searchFrom = nextChannelStart < 0 ? truncatedText.length() : nextChannelStart;
+                continue;
+            }
+            for (String name : extractCollectionNames(materialBlock)) {
+                if (garbageGoods != null && garbageGoods.contains(name)) {
+                    continue;
+                }
+                result.add(name);
+            }
+            searchFrom = nextChannelStart < 0 ? truncatedText.length() : nextChannelStart;
+        }
+        return new ArrayList<>(result);
     }
 
     /**
@@ -187,40 +188,21 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
             return Collections.emptyList();
         }
         List<String> names = new ArrayList<>();
-        Matcher matcher = COLLECTION_NAME_PATTERN.matcher(block);
-        while (matcher.find()) {
-            String name = matcher.group(1);
-            if (name != null && !name.isBlank() && !shouldExclude(name.trim())) {
-                names.add(name.trim());
+        int searchFrom = 0;
+        while (searchFrom < block.length()) {
+            int start = block.indexOf('《', searchFrom);
+            if (start < 0) {
+                break;
             }
-        }
-        return names;
-    }
-
-    /**
-     * Extracts collection names from holding-related content.
-     */
-    private List<String> extractHoldingCollectionNames(String block) {
-        if (block == null || block.isBlank()) {
-            return Collections.emptyList();
-        }
-        List<String> names = new ArrayList<>();
-        Matcher exactMatcher = HOLDING_COLLECTION_PATTERN.matcher(block);
-        while (exactMatcher.find()) {
-            String name = exactMatcher.group(1);
-            if (name != null && !name.isBlank() && !shouldExclude(name.trim())) {
-                names.add(name.trim());
+            int end = block.indexOf('》', start + 1);
+            if (end < 0) {
+                break;
             }
-        }
-
-        Matcher segmentMatcher = HOLDING_SEGMENT_PATTERN.matcher(block);
-        while (segmentMatcher.find()) {
-            String segment = segmentMatcher.group();
-            for (String name : extractCollectionNames(segment)) {
-                if (!names.contains(name)) {
-                    names.add(name);
-                }
+            String name = block.substring(start + 1, end).trim();
+            if (!name.isBlank() && !shouldExclude(name)) {
+                names.add(name);
             }
+            searchFrom = end + 1;
         }
         return names;
     }
@@ -265,7 +247,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     }
 
     /**
-     * Extracts goods listed in the trailing future-activity / fengyu-shop section.
+     * Extracts goods explicitly listed in the trailing future-activity / fengyu-shop section.
      */
     private List<String> extractTailGarbageGoods(String text) {
         if (text == null || text.isBlank()) {
@@ -285,22 +267,40 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     }
 
     /**
-     * Removes goods that are explicitly marked as future-activity / fengyu-shop leftovers.
+     * Finds the next channel marker.
      */
-    private List<String> filterGarbageGoods(List<String> names, LinkedHashSet<String> garbageGoods) {
-        if (names == null || names.isEmpty()) {
-            return Collections.emptyList();
-        }
-        if (garbageGoods == null || garbageGoods.isEmpty()) {
-            return names;
-        }
-        List<String> filtered = new ArrayList<>();
-        for (String name : names) {
-            if (name == null || name.isBlank() || garbageGoods.contains(name)) {
-                continue;
+    private int findNextChannelStart(String text, int fromIndex) {
+        int searchFrom = Math.max(fromIndex, 0);
+        while (searchFrom < text.length()) {
+            int candidate = text.indexOf("通道", searchFrom);
+            if (candidate < 0) {
+                return -1;
             }
-            filtered.add(name);
+            int suffixIndex = candidate + 2;
+            if (suffixIndex < text.length() && isChannelSuffix(text.charAt(suffixIndex))) {
+                return candidate;
+            }
+            searchFrom = candidate + 2;
         }
-        return filtered;
+        return -1;
     }
+
+    /**
+     * Skips the short channel title line and points to the channel body.
+     */
+    private int findChannelBodyStart(String text, int channelStart) {
+        int newlineIndex = text.indexOf('\n', channelStart);
+        return newlineIndex < 0 ? channelStart : newlineIndex + 1;
+    }
+
+    /**
+     * Checks whether the character after "通道" looks like a valid channel suffix.
+     */
+    private boolean isChannelSuffix(char value) {
+        return value == '一' || value == '二' || value == '三' || value == '四'
+                || value == '五' || value == '六' || value == '七' || value == '八'
+                || value == '九' || value == '十'
+                || (value >= '0' && value <= '9');
+    }
+
 }
