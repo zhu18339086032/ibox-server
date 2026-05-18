@@ -47,6 +47,11 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     private static final List<String> EXCLUDED_KEYWORDS = List.of("万能材料", "新春限定", "扶光踏梦", "秀山", "大镖客", "一路牛", "蕃红李李·巴蛇", "领头狼");
 
     /**
+     * Noise markers used to cut off the trailing non-target goods section.
+     */
+    private static final List<String> NOISE_TAIL_KEYWORDS = List.of("本次合成结束", "后续活动区", "凤羽商店");
+
+    /**
      * Chooses a parse strategy based on announcement category.
      */
     @Override
@@ -73,6 +78,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
         }
 
         String plainText = toPlainText(content);
+        plainText = truncateNoiseTail(plainText);
         if (plainText.indexOf('《') < 0 && !plainText.contains("持有藏品")) {
             return Collections.emptyList();
         }
@@ -157,6 +163,9 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
         endIndex = minPositive(endIndex, materialSection.indexOf("提示"));
         endIndex = minPositive(endIndex, materialSection.indexOf("注："));
         endIndex = minPositive(endIndex, materialSection.indexOf("注:"));
+        endIndex = minPositive(endIndex, materialSection.indexOf("本次合成结束"));
+        endIndex = minPositive(endIndex, materialSection.indexOf("后续活动区"));
+        endIndex = minPositive(endIndex, materialSection.indexOf("凤羽商店"));
         return materialSection.substring(0, endIndex);
     }
 
@@ -235,5 +244,22 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
             return candidate;
         }
         return current;
+    }
+
+    /**
+     * Cuts off the tail section that usually contains converted-shop / future-activity goods.
+     */
+    private String truncateNoiseTail(String text) {
+        if (text == null || text.isBlank()) {
+            return text;
+        }
+        int endIndex = text.length();
+        for (String marker : NOISE_TAIL_KEYWORDS) {
+            int markerIndex = text.indexOf(marker);
+            if (markerIndex >= 0 && markerIndex < endIndex) {
+                endIndex = markerIndex;
+            }
+        }
+        return endIndex < text.length() ? text.substring(0, endIndex) : text;
     }
 }
