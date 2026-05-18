@@ -15,9 +15,12 @@ import com.ibox.entity.PurchaseTaskEntity;
 import com.ibox.manager.PurchaseTaskManager;
 import com.ibox.model.ProxyInfo;
 import com.ibox.model.req.ibox.BatchPurchaseConsignmentOrdersReq;
+import com.ibox.model.req.ibox.PurchaseConsignmentOrdersReq;
 import com.ibox.model.req.web.PurchaseTaskPageReq;
 import com.ibox.model.req.web.PurchaseTaskSaveReq;
 import com.ibox.model.req.web.PurchaseTaskUpdateReq;
+import com.ibox.model.res.ibox.ConsignmentOrderListRes;
+import com.ibox.model.res.ibox.ConsignmentOrderRes;
 import com.ibox.model.res.ibox.IboxApiResponse;
 import com.ibox.model.res.ibox.OrderPaymentInfoRes;
 import com.ibox.model.res.web.MonitorTaskExecuteRes;
@@ -37,7 +40,14 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Deque;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -49,10 +59,24 @@ import java.util.stream.Collectors;
 @Service
 public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
 
+    private static final int TASK_TYPE_FAST_PURCHASE = 1;
+
+    private static final int TASK_TYPE_BATCH_PURCHASE = 2;
+
     /**
      * 每个账号每分钟固定允许 10 次有效请求。
      */
     private static final int REQUESTS_PER_ACCOUNT_PER_MINUTE = 9;
+
+    /**
+     * 快速购买任务每个账号每分钟允许的扫描次数。
+     */
+    private static final int FAST_SCAN_REQUESTS_PER_ACCOUNT_PER_MINUTE = 9;
+
+    /**
+     * 快速购买扫描时每页最大条数。
+     */
+    private static final int FAST_SCAN_PAGE_SIZE = 20;
 
     /**
      * 单次批量购买请求固定只尝试购买 1 个。
@@ -63,6 +87,16 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
      * 记录每个任务当前轮换到的账号下标。
      */
     private final Map<Long, AtomicInteger> taskAccountIndexMap = new ConcurrentHashMap<>();
+
+    /**
+     * 快速购买任务扫描账号下标。
+     */
+    private final Map<Long, AtomicInteger> taskFastScanIndexMap = new ConcurrentHashMap<>();
+
+    /**
+     * 快速购买任务按账号记录扫描次数窗口。
+     */
+    private final Map<Long, Map<Long, AccountScanWindow>> taskScanWindowMap = new ConcurrentHashMap<>();
 
     @Autowired
     private PurchaseTaskService purchaseTaskService;
@@ -111,7 +145,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         PurchaseTaskEntity entity = new PurchaseTaskEntity();
         BeanUtils.copyProperties(req, entity);
         entity.setAccountIds(joinAccountIds(req.getAccountIds()));
-        entity.setTaskType(2);
+        entity.setTaskType(normalizeTaskType(req.getTaskType()));
         entity.setRunning(0);
         entity.setPurchasedCount(0);
         return purchaseTaskService.save(entity);
@@ -122,6 +156,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         PurchaseTaskEntity entity = new PurchaseTaskEntity();
         BeanUtils.copyProperties(req, entity);
         entity.setAccountIds(joinAccountIds(req.getAccountIds()));
+        entity.setTaskType(normalizeTaskType(req.getTaskType()));
         taskAccountIndexMap.remove(req.getId());
         return purchaseTaskService.updateById(entity);
     }
@@ -147,7 +182,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         if (task == null) {
             res.setSuccess(false);
             res.setRunning(false);
-            res.setMessage("批量购买任务不存在");
+            res.setMessage("任务不存在");
             res.setEndTime(LocalDateTime.now());
             return res;
         }
@@ -155,7 +190,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         if (task.getStatus() == null || task.getStatus() != 1) {
             res.setSuccess(false);
             res.setRunning(false);
-            res.setMessage("批量购买任务未启用");
+            res.setMessage("任务未启用");
             res.setEndTime(LocalDateTime.now());
             return res;
         }
@@ -163,7 +198,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         if (CollectionUtils.isEmpty(parseAccountIds(task.getAccountIds()))) {
             res.setSuccess(false);
             res.setRunning(false);
-            res.setMessage("批量购买任务未配置可用账号");
+            res.setMessage("任务未配置可用账号");
             res.setEndTime(LocalDateTime.now());
             return res;
         }
@@ -171,12 +206,13 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         if (isTargetReached(task)) {
             res.setSuccess(false);
             res.setRunning(false);
-            res.setMessage("批量购买任务已达到目标购买数");
+            res.setMessage("任务已达到目标购买数");
             res.setEndTime(LocalDateTime.now());
             return res;
         }
 
         taskAccountIndexMap.put(id, new AtomicInteger(0));
+        taskScanWindowMap.remove(id);
         boolean started = purchaseTaskRuntimeManager.start(id, () -> executeTaskLoop(task.getId()));
         if (started) {
             PurchaseTaskEntity update = new PurchaseTaskEntity();
@@ -185,11 +221,11 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
             purchaseTaskService.updateById(update);
             res.setSuccess(true);
             res.setRunning(true);
-            res.setMessage("批量购买任务已启动");
+            res.setMessage("任务已启动");
         } else {
             res.setSuccess(false);
             res.setRunning(true);
-            res.setMessage("批量购买任务已在运行中");
+            res.setMessage("任务已在运行中");
         }
         res.setEndTime(LocalDateTime.now());
         return res;
@@ -203,6 +239,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
 
         boolean stopped = purchaseTaskRuntimeManager.stop(id);
         taskAccountIndexMap.remove(id);
+        taskScanWindowMap.remove(id);
         PurchaseTaskEntity update = new PurchaseTaskEntity();
         update.setId(id);
         update.setRunning(0);
@@ -210,16 +247,25 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
 
         res.setSuccess(stopped);
         res.setRunning(false);
-        res.setMessage(stopped ? "批量购买任务已停止" : "批量购买任务未在运行");
+        res.setMessage(stopped ? "任务已停止" : "任务未在运行");
         res.setEndTime(LocalDateTime.now());
         return res;
+    }
+
+    private void executeTaskLoop(Long taskId) {
+        PurchaseTaskEntity task = purchaseTaskService.getById(taskId);
+        if (task != null && normalizeTaskType(task.getTaskType()) == TASK_TYPE_FAST_PURCHASE) {
+            executeFastPurchaseTaskLoop(taskId);
+            return;
+        }
+        executeBatchPurchaseTaskLoop(taskId);
     }
 
     /**
      * 每轮需要拿到“账号数 * 10”次有效请求。
      * 只有真正拿到 iBox 业务响应的请求才计入分钟额度，代理超时、异常、null 响应都不计数。
      */
-    private void executeTaskLoop(Long taskId) {
+    private void executeBatchPurchaseTaskLoop(Long taskId) {
         if (shouldStop(taskId)) {
             return;
         }
@@ -306,6 +352,94 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
     }
 
     /**
+     * 快速购买任务循环。
+     */
+    private void executeFastPurchaseTaskLoop(Long taskId) {
+        if (shouldStop(taskId)) {
+            return;
+        }
+
+        PurchaseTaskEntity task = purchaseTaskService.getById(taskId);
+        if (task == null) {
+            taskAccountIndexMap.remove(taskId);
+            taskFastScanIndexMap.remove(taskId);
+            taskScanWindowMap.remove(taskId);
+            purchaseTaskRuntimeManager.stop(taskId);
+            return;
+        }
+        if (task.getStatus() == null || task.getStatus() != 1) {
+            stopTask(taskId);
+            return;
+        }
+        if (isTargetReached(task)) {
+            stopTask(taskId);
+            return;
+        }
+
+        List<Long> accountIds = parseAccountIds(task.getAccountIds());
+        if (CollectionUtils.isEmpty(accountIds)) {
+            log.warn("【快速购买任务】未配置可用账号，taskId:{}", taskId);
+            sleep(1000L);
+            return;
+        }
+
+        long intervalMillis = normalizeInterval(task.getIntervalMillis());
+        IboxAccountEntity purchaseAccount = getAccount(accountIds.get(0));
+        if (purchaseAccount == null || !StringUtils.hasText(purchaseAccount.getBearerToken())) {
+            log.warn("【快速购买任务】首个购买账号不可用，taskId:{}, accountId:{}", taskId, accountIds.get(0));
+            sleep(intervalMillis);
+            return;
+        }
+
+        ScanAccountSelection selection = getNextFastScanAccount(taskId, accountIds);
+        if (selection == null || selection.account() == null) {
+            long restMillis = getFastScanRestMillis(taskId, accountIds);
+            sleep(restMillis > 0 ? restMillis : intervalMillis);
+            return;
+        }
+        IboxAccountEntity scanAccount = selection.account();
+        if (!StringUtils.hasText(scanAccount.getBearerToken())) {
+            log.warn("【快速购买任务】扫描账号Token为空，跳过本次扫描，taskId:{}, accountId:{}", taskId, scanAccount.getId());
+            sleep(intervalMillis);
+            return;
+        }
+
+        try {
+            IboxApiResponse<ConsignmentOrderListRes> listResponse = fetchConsignmentOrderList(task, scanAccount);
+            if (listResponse == null || listResponse.getCode() == null || listResponse.getCode() != 0 || listResponse.getData() == null) {
+                log.warn("【快速购买任务】在售列表响应无效，taskId:{}, accountId:{}, response:{}", taskId, scanAccount.getId(), JSONObject.toJSONString(listResponse));
+                sleep(intervalMillis);
+                return;
+            }
+            recordFastScan(taskId, selection.accountId());
+
+            ConsignmentOrderRes matchedOrder = pickPurchasableOrder(task, listResponse.getData());
+            if (matchedOrder == null) {
+                log.info("【快速购买任务】未找到可购买订单，taskId:{}, accountId:{}", taskId, scanAccount.getId());
+                sleep(intervalMillis);
+                return;
+            }
+
+            log.info("【快速购买任务】命中可购买订单，scanAccountId:{}, purchaseAccountId:{}, digitalCollectionId:{}, lockType:{}", scanAccount.getId(), purchaseAccount.getId(), matchedOrder.getDigitalCollectionId(), matchedOrder.getDigitalCollection() == null ? null : matchedOrder.getDigitalCollection().getLockType());
+            PurchaseResult purchaseResult = doFastPurchase(task, purchaseAccount, matchedOrder);
+            if (purchaseResult.success) {
+                int purchasedCount = task.getPurchasedCount() == null ? 0 : task.getPurchasedCount();
+                purchasedCount++;
+                updatePurchasedCount(taskId, purchasedCount);
+                feishuMessageUtil.sendText("iBox快速购买任务成功，任务名称：" + task.getTaskName() + "，藏品名称：" + safeCollectionName(matchedOrder) + "，藏品ID：" + matchedOrder.getDigitalCollectionId() + "，账号ID：" + purchaseAccount.getId() + "，订单ID：" + purchaseResult.orderId);
+                if (isTargetReached(task.getMaxCount(), purchasedCount)) {
+                    stopTask(taskId);
+                    return;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("【快速购买任务】请求处理异常，taskId:{}, scanAccountId:{}, purchaseAccountId:{}", taskId, scanAccount.getId(), purchaseAccount.getId(), e);
+        }
+
+        sleep(intervalMillis);
+    }
+
+    /**
      * 执行一次批量购买请求。
      */
     private PurchaseResult doPurchase(PurchaseTaskEntity task, IboxAccountEntity account) {
@@ -314,7 +448,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         ProxyInfo nextConfigProxy = iboxProxyService.getNextConfigProxy();
         try {
             purchaseResponse = iboxClient.post(account.getBearerToken(), String.format(UrlConstant.BATCH_PURCHASE_CONSIGNMENT_ORDER_URL, account.getIboxUid()), req, new TypeReference<>() {
-            },nextConfigProxy);
+            }, nextConfigProxy);
         } catch (Exception e) {
             log.warn("【批量购买任务】请求异常，不计入有效请求，taskId:{}, accountId:{}, collectionId:{}", task.getId(), account.getId(), task.getDigitalCollectionGroupId(), e);
             return PurchaseResult.invalid();
@@ -437,6 +571,182 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         update.setId(taskId);
         update.setPurchasedCount(purchasedCount);
         purchaseTaskService.updateById(update);
+    }
+
+    /**
+     * 快速购买任务扫描在售列表。
+     */
+    private IboxApiResponse<ConsignmentOrderListRes> fetchConsignmentOrderList(PurchaseTaskEntity task, IboxAccountEntity account) {
+        ProxyInfo nextConfigProxy = iboxProxyService.getNextConfigProxy();
+        String url = String.format(UrlConstant.CONSIGNMENT_ORDER_LIST_URL, task.getDigitalCollectionGroupId(), 1, FAST_SCAN_PAGE_SIZE, 1, 1, account.getIboxUid());
+        return iboxClient.get(account.getBearerToken(), url, null, new TypeReference<>() {
+        }, nextConfigProxy);
+    }
+
+    /**
+     * 从在售列表中优先挑选 lockType == 2 的可购买藏品。
+     */
+    private ConsignmentOrderRes pickPurchasableOrder(PurchaseTaskEntity task, ConsignmentOrderListRes listRes) {
+        if (listRes == null || CollectionUtils.isEmpty(listRes.getList())) {
+            return null;
+        }
+        int count = 0;
+        for (ConsignmentOrderRes order : listRes.getList()) {
+            if (count >= 3) {
+                break;
+            }
+            if (order == null || order.getDigitalCollection() == null) {
+                continue;
+            }
+            log.info("【快速购买】collectionName:{}, price:{}, lockType:{}", order.getDigitalCollection().getName(), order.getPrice(), order.getDigitalCollection().getLockType());
+            if (Integer.valueOf(2).equals(order.getDigitalCollection().getLockType()) && order.getPrice().compareTo(task.getMaxSinglePrice()) <= 0) {
+                return order;
+            }
+            count++;
+        }
+        return null;
+    }
+
+    /**
+     * 快速购买：始终使用首个账号下单。
+     */
+    private PurchaseResult doFastPurchase(PurchaseTaskEntity task, IboxAccountEntity account, ConsignmentOrderRes order) {
+        PurchaseConsignmentOrdersReq req = new PurchaseConsignmentOrdersReq();
+        req.setDigitalCollectionId(order.getDigitalCollectionId());
+        req.setPaymentPlatformCode(task.getPaymentPlatformCode() == null ? 30L : task.getPaymentPlatformCode().longValue());
+        ProxyInfo nextConfigProxy = iboxProxyService.getNextConfigProxy();
+        IboxApiResponse<Map<String, Object>> purchaseResponse;
+        try {
+            purchaseResponse = iboxClient.post(account.getBearerToken(), UrlConstant.PURCHASE_CONSIGNMENT_ORDER_URL, req, new TypeReference<>() {
+            }, nextConfigProxy);
+        } catch (Exception e) {
+            log.warn("【快速购买任务】下单异常，taskId:{}, accountId:{}, digitalCollectionId:{}", task.getId(), account.getId(), order.getDigitalCollectionId(), e);
+            return PurchaseResult.invalid();
+        }
+
+        log.info("【快速购买任务】下单响应，taskId:{}, accountId:{}, result:{}", task.getId(), account.getId(), JSONObject.toJSONString(purchaseResponse));
+        if (purchaseResponse == null || purchaseResponse.getCode() == null) {
+            return PurchaseResult.invalid();
+        }
+        if (purchaseResponse.getMessage().contains("未支付")) {
+            feishuMessageUtil.sendText(account.getAccountName() + ":有待支付订单", account.getId() + "buy", 3);
+            sleep(10000);
+        }
+        if (!isPurchaseSuccess(purchaseResponse)) {
+            return PurchaseResult.validFail();
+        }
+
+        String orderId = String.valueOf(purchaseResponse.getData().get("orderId"));
+        saveFastSuccessOrder(task, account, req, purchaseResponse, orderId, order);
+        logOrderPaymentLink(account, orderId);
+        return PurchaseResult.success(orderId);
+    }
+
+    /**
+     * 保存快速购买成功的订单记录。
+     */
+    private void saveFastSuccessOrder(PurchaseTaskEntity task, IboxAccountEntity account, PurchaseConsignmentOrdersReq req, IboxApiResponse<Map<String, Object>> purchaseResponse, String orderId, ConsignmentOrderRes order) {
+        PurchaseOrderEntity purchaseOrder = new PurchaseOrderEntity();
+        purchaseOrder.setTaskId(task.getId());
+        purchaseOrder.setAccountId(account.getId());
+        purchaseOrder.setDigitalCollectionId(order.getDigitalCollectionId());
+        purchaseOrder.setRequestType(1);
+        purchaseOrder.setRequestPayload(JSONObject.toJSONString(req));
+        purchaseOrder.setResponsePayload(JSONObject.toJSONString(purchaseResponse));
+        purchaseOrder.setIboxOrderId(orderId);
+        purchaseOrder.setStatus(1);
+        purchaseOrder.setSubmittedAt(LocalDateTime.now());
+        purchaseOrder.setFinishedAt(LocalDateTime.now());
+        purchaseOrderService.save(purchaseOrder);
+    }
+
+    /**
+     * 快速购买任务选择下一个扫描账号。
+     */
+    private ScanAccountSelection getNextFastScanAccount(Long taskId, List<Long> accountIds) {
+        if (CollectionUtils.isEmpty(accountIds)) {
+            return null;
+        }
+        Map<Long, AccountScanWindow> windowMap = taskScanWindowMap.computeIfAbsent(taskId, key -> new ConcurrentHashMap<>());
+        cleanupExpiredWindows(windowMap);
+
+        AtomicInteger index = taskFastScanIndexMap.computeIfAbsent(taskId, key -> new AtomicInteger(0));
+        int startIndex = Math.floorMod(index.getAndIncrement(), accountIds.size());
+        long now = System.currentTimeMillis();
+        for (int offset = 0; offset < accountIds.size(); offset++) {
+            Long accountId = accountIds.get((startIndex + offset) % accountIds.size());
+            AccountScanWindow window = windowMap.computeIfAbsent(accountId, key -> new AccountScanWindow());
+            if (window.canScan(now, FAST_SCAN_REQUESTS_PER_ACCOUNT_PER_MINUTE)) {
+                IboxAccountEntity account = getAccount(accountId);
+                if (account != null) {
+                    return new ScanAccountSelection(accountId, account);
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 快速购买在拿到有效业务响应后，才记录本次扫描额度。
+     */
+    private void recordFastScan(Long taskId, Long accountId) {
+        if (taskId == null || accountId == null) {
+            return;
+        }
+        Map<Long, AccountScanWindow> windowMap = taskScanWindowMap.computeIfAbsent(taskId, key -> new ConcurrentHashMap<>());
+        AccountScanWindow window = windowMap.computeIfAbsent(accountId, key -> new AccountScanWindow());
+        window.record(System.currentTimeMillis());
+    }
+
+    /**
+     * 快速购买账号限频时，计算距离下一次可扫描还要等待多久。
+     */
+    private long getFastScanRestMillis(Long taskId, List<Long> accountIds) {
+        Map<Long, AccountScanWindow> windowMap = taskScanWindowMap.get(taskId);
+        if (windowMap == null || CollectionUtils.isEmpty(accountIds)) {
+            return 1000L;
+        }
+        long now = System.currentTimeMillis();
+        long rest = Long.MAX_VALUE;
+        for (Long accountId : accountIds) {
+            AccountScanWindow window = windowMap.get(accountId);
+            if (window == null) {
+                return 0L;
+            }
+            rest = Math.min(rest, window.getRestMillis(now, FAST_SCAN_REQUESTS_PER_ACCOUNT_PER_MINUTE));
+        }
+        return rest == Long.MAX_VALUE ? 1000L : Math.max(rest, 0L);
+    }
+
+    /**
+     * 清理过期的扫描窗口。
+     */
+    private void cleanupExpiredWindows(Map<Long, AccountScanWindow> windowMap) {
+        if (windowMap == null || windowMap.isEmpty()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        windowMap.values().removeIf(window -> window.isExpired(now));
+    }
+
+    /**
+     * 兼容任务类型默认值。
+     */
+    private int normalizeTaskType(Integer taskType) {
+        return taskType == null ? TASK_TYPE_BATCH_PURCHASE : taskType;
+    }
+
+    /**
+     * 安全获取藏品名称。
+     */
+    private String safeCollectionName(ConsignmentOrderRes order) {
+        if (order == null) {
+            return "-";
+        }
+        if (StringUtils.hasText(order.getDigitalCollection().getName())) {
+            return order.getDigitalCollection().getName();
+        }
+        return order.getDigitalCollection() == null || !StringUtils.hasText(order.getDigitalCollection().getName()) ? "-" : order.getDigitalCollection().getName();
     }
 
     /**
@@ -585,5 +895,47 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
      */
     private long normalizeInterval(Long intervalMillis) {
         return intervalMillis == null || intervalMillis <= 0 ? 1000L : intervalMillis;
+    }
+
+    /**
+     * 快速购买扫描窗口。
+     */
+    private static class AccountScanWindow {
+        private final Deque<Long> timestamps = new ArrayDeque<>();
+
+        private boolean canScan(long now, int limitPerMinute) {
+            trim(now);
+            return timestamps.size() < limitPerMinute;
+        }
+
+        private void record(long now) {
+            timestamps.addLast(now);
+            trim(now);
+        }
+
+        private long getRestMillis(long now, int limitPerMinute) {
+            trim(now);
+            if (timestamps.size() < limitPerMinute || timestamps.isEmpty()) {
+                return 0L;
+            }
+            return Math.max(60000L - (now - timestamps.peekFirst()), 0L);
+        }
+
+        private boolean isExpired(long now) {
+            trim(now);
+            return timestamps.isEmpty();
+        }
+
+        private void trim(long now) {
+            while (!timestamps.isEmpty() && now - timestamps.peekFirst() >= 60000L) {
+                timestamps.removeFirst();
+            }
+        }
+    }
+
+    /**
+     * 快速购买扫描账号选择结果。
+     */
+    private record ScanAccountSelection(Long accountId, IboxAccountEntity account) {
     }
 }

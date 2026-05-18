@@ -43,7 +43,7 @@ public class UrlConstant {
      * 寄售订单列表接口
      * GET /public-market-service/digital-collection-groups/{groupId}/consignment-orders?pageNo={pageNo}&pageSize={pageSize}&sortType={sortType}&sortField={sortField}&uid={uid}
      */
-    public static final String CONSIGNMENT_ORDER_LIST_URL = "/public-market-service/digital-collection-groups/%s/consignment-orders?pageNo=%s&pageSize=%s&sortType=%s&sortField=%s&uid=%s";
+    public static final String CONSIGNMENT_ORDER_LIST_URL = SAIL_API_BASE_URL + "/public-market-service/digital-collection-groups/%s/consignment-orders?pageNo=%s&pageSize=%s&sortType=%s&sortField=%s&uid=%s";
 
     /**
      * 创建单个寄售订单接口

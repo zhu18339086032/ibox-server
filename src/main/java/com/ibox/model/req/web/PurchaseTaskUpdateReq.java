@@ -57,6 +57,11 @@ public class PurchaseTaskUpdateReq {
     private Integer paymentPlatformCode;
 
     /**
+     * 任务类型，1-快速购买，2-批量购买
+     */
+    private Integer taskType;
+
+    /**
      * 任务状态
      */
     private Integer status;

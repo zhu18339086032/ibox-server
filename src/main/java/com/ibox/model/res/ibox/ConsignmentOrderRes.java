@@ -1,11 +1,10 @@
 package com.ibox.model.res.ibox;
 
-import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableId;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 /**
  * 寄售订单响应
@@ -14,17 +13,10 @@ import java.math.BigDecimal;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class ConsignmentOrderRes {
 
-
     /**
      * 主键ID
      */
-    @TableId(type = IdType.AUTO)
     private Long id;
-
-    /**
-     * 寄售订单ID
-     */
-    private Long consignmentOrderId;
 
     /**
      * 订单唯一标识
@@ -34,17 +26,12 @@ public class ConsignmentOrderRes {
     /**
      * 分组ID
      */
-    private String groupId;
+    private Long groupId;
 
     /**
      * 数字藏品ID
      */
     private Long digitalCollectionId;
-
-    /**
-     * 数字藏品名称
-     */
-    private String digitalCollectionName;
 
     /**
      * 售价-元
@@ -72,16 +59,6 @@ public class ConsignmentOrderRes {
     private Integer secondMarketType;
 
     /**
-     * 锁定状态
-     */
-    private Integer lockStatus;
-
-    /**
-     * 锁定类型，2表示可下单
-     */
-    private Integer lockType;
-
-    /**
      * 当前支付平台编码
      */
     private Integer paymentPlatformCode;
@@ -90,4 +67,40 @@ public class ConsignmentOrderRes {
      * 可用支付平台编码列表
      */
     private String paymentPlatformCodes;
+
+
+    /**
+     * 是否属于用户 (0: 否, 1: 是)
+     */
+    private Integer isBelongUser;
+
+    /**
+     * 等级
+     */
+    private Integer level;
+
+    /**
+     * 部分退款状态 (0: 否, 1: 是)
+     */
+    private Integer partialRefund;
+
+    /**
+     * 产品类型
+     */
+    private Integer productType;
+
+    /**
+     * 数量
+     */
+    private Integer quantity;
+
+    /**
+     * 特殊订单类型
+     */
+    private Integer specialOrderType;
+
+    /**
+     * 数字藏品信息
+     */
+    private DigitalCollectionRes digitalCollection;
 }

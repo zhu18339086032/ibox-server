@@ -37,6 +37,7 @@ import java.net.URI;
 import java.security.SecureRandom;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -191,10 +192,12 @@ public abstract class AbstractIboxClient implements IboxClient {
         headers.set(HttpHeaders.CACHE_CONTROL, "no-cache");
         headers.set(HttpHeaders.PRAGMA, "no-cache");
         headers.set(HttpHeaders.CONNECTION, "keep-alive");
+        headers.set(HttpHeaders.ACCEPT_ENCODING, "gzip, deflate, br");
         headers.set(HttpHeaders.USER_AGENT, "Mozilla/5.0 (Linux; Android 12; M2012K11AC Build/SKQ1.211006.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.0.0 Mobile Safari/537.36 iBox/1.0");
         headers.set("Origin", "https://www.ibox.art");
         headers.set("Referer", "https://www.ibox.art/");
         headers.set("X-Requested-With", "com.ibox.app");
+        headers.set("X-Request-Id", UUID.randomUUID().toString().replace("-", ""));
         if (token != null && !token.isBlank()) {
             headers.setBearerAuth(token.replaceFirst("^Bearer\\s+", ""));
         }
