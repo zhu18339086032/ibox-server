@@ -77,8 +77,9 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
             return Collections.emptyList();
         }
 
-        String plainText = toPlainText(content);
-        plainText = truncateNoiseTail(plainText);
+        String originalPlainText = toPlainText(content);
+        LinkedHashSet<String> garbageGoods = new LinkedHashSet<>(extractTailGarbageGoods(originalPlainText));
+        String plainText = truncateNoiseTail(originalPlainText);
         if (plainText.indexOf('《') < 0 && !plainText.contains("持有藏品")) {
             return Collections.emptyList();
         }
@@ -89,11 +90,11 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
         while (channelMatcher.find()) {
             matchedChannel = true;
             String channelTitle = channelMatcher.group(1);
-            String channelBlock = channelMatcher.group(2);
+            String channelBlock = truncateNoiseTail(channelMatcher.group(2));
 
             LinkedHashSet<String> currentNames = new LinkedHashSet<>();
-            currentNames.addAll(extractHoldingCollectionNames(channelBlock));
-            currentNames.addAll(extractCollectionNames(extractMaterialBlock(channelBlock)));
+            currentNames.addAll(filterGarbageGoods(extractHoldingCollectionNames(channelBlock), garbageGoods));
+            currentNames.addAll(filterGarbageGoods(extractCollectionNames(extractMaterialBlock(channelBlock)), garbageGoods));
             if (currentNames.isEmpty()) {
                 continue;
             }
@@ -111,7 +112,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
         if (matchedChannel) {
             result = new ArrayList<>(fallbackResult);
         } else {
-            result = new ArrayList<>(new LinkedHashSet<>(extractCollectionNames(plainText)));
+            result = new ArrayList<>(new LinkedHashSet<>(filterGarbageGoods(extractCollectionNames(truncateNoiseTail(plainText)), garbageGoods)));
         }
 
         log.info("【公告内容解析】合成公告解析结果:{}", result);
@@ -261,5 +262,45 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
             }
         }
         return endIndex < text.length() ? text.substring(0, endIndex) : text;
+    }
+
+    /**
+     * Extracts goods listed in the trailing future-activity / fengyu-shop section.
+     */
+    private List<String> extractTailGarbageGoods(String text) {
+        if (text == null || text.isBlank()) {
+            return Collections.emptyList();
+        }
+        int startIndex = -1;
+        for (String marker : NOISE_TAIL_KEYWORDS) {
+            int markerIndex = text.indexOf(marker);
+            if (markerIndex >= 0 && (startIndex < 0 || markerIndex < startIndex)) {
+                startIndex = markerIndex;
+            }
+        }
+        if (startIndex < 0) {
+            return Collections.emptyList();
+        }
+        return extractCollectionNames(text.substring(startIndex));
+    }
+
+    /**
+     * Removes goods that are explicitly marked as future-activity / fengyu-shop leftovers.
+     */
+    private List<String> filterGarbageGoods(List<String> names, LinkedHashSet<String> garbageGoods) {
+        if (names == null || names.isEmpty()) {
+            return Collections.emptyList();
+        }
+        if (garbageGoods == null || garbageGoods.isEmpty()) {
+            return names;
+        }
+        List<String> filtered = new ArrayList<>();
+        for (String name : names) {
+            if (name == null || name.isBlank() || garbageGoods.contains(name)) {
+                continue;
+            }
+            filtered.add(name);
+        }
+        return filtered;
     }
 }
