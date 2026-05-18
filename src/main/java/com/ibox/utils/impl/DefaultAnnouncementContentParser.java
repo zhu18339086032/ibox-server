@@ -19,7 +19,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     /**
      * Keywords that should be excluded from parse results.
      */
-    private static final List<String> EXCLUDED_KEYWORDS = List.of("万能材料", "新春限定", "扶光踏梦", "秀山", "大镖客", "一路牛", "蕃红李李·巴蛇", "领头狼");
+    private static final List<String> EXCLUDED_KEYWORDS = List.of("万能材料", "新春限定", "扶光踏梦", "秀山", "大镖客", "一路牛", "蕃红李李·巴蛇", "领头狼", "锦鲤版");
 
     /**
      * Noise markers used to cut off the trailing non-target goods section.
@@ -176,6 +176,17 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
                 result.add(name);
             }
             searchFrom = nextChannelStart < 0 ? truncatedText.length() : nextChannelStart;
+        }
+        if (result.isEmpty()) {
+            String materialBlock = extractMaterialBlock(truncatedText);
+            if (!materialBlock.isBlank()) {
+                for (String name : extractCollectionNames(materialBlock)) {
+                    if (garbageGoods != null && garbageGoods.contains(name)) {
+                        continue;
+                    }
+                    result.add(name);
+                }
+            }
         }
         return new ArrayList<>(result);
     }
