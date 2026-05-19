@@ -306,7 +306,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
         for (String marker : NOISE_TAIL_KEYWORDS) {
             int markerIndex = text.indexOf(marker);
             if (markerIndex >= 0 && (startIndex < 0 || markerIndex < startIndex)) {
-                startIndex = markerIndex;
+                startIndex = findLineStart(text, markerIndex);
             }
         }
         if (startIndex < 0) {
@@ -315,6 +315,17 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
         LinkedHashSet<String> garbageGoods = new LinkedHashSet<>();
         extractCollectionNamesToSet(text.substring(startIndex), garbageGoods, null);
         return new TailParseResult(text.substring(0, startIndex), garbageGoods);
+    }
+
+    /**
+     * Finds the start index of the current line so tail parsing can include names before the marker.
+     */
+    private int findLineStart(String text, int index) {
+        if (index <= 0) {
+            return 0;
+        }
+        int lineStart = text.lastIndexOf('\n', index - 1);
+        return lineStart < 0 ? 0 : lineStart + 1;
     }
 
     /**
