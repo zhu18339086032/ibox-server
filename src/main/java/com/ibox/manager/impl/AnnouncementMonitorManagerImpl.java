@@ -145,10 +145,10 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
             announcementStateCache.setLatestAnnouncementId(latest.getId());
             return;
         }
-        log.info("【公告列表】公告UUID:{},标题:{},分类:{}, listCostMs:{}", latest.getUuid(), latest.getTitle(), latest.getCategory().getName(), listCostMs);
         if (latest.getId().equals(cachedLatestId)) {
             return;
         }
+        log.info("【公告列表】公告UUID:{},标题:{},分类:{}, listCostMs:{}", latest.getUuid(), latest.getTitle(), latest.getCategory().getName(), listCostMs);
         announcementStateCache.setLatestAnnouncementId(latest.getId());
 
         if (shouldSkipDetailFetch(latest.getCategory().getName(), latest.getTitle())) {
