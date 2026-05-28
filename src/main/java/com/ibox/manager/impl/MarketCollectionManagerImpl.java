@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.ibox.client.IboxClient;
 import com.ibox.common.IboxAccountCache;
 import com.ibox.common.MarketCollectionCache;
+import com.ibox.constants.BuyConstant;
 import com.ibox.constants.UrlConstant;
 import com.ibox.entity.IboxAccountEntity;
 import com.ibox.entity.MarketCollectionEntity;
@@ -115,9 +116,11 @@ public class MarketCollectionManagerImpl implements MarketCollectionManager {
         }
 
         Set<Long> currentIds = new LinkedHashSet<>();
+        BuyConstant.picMap.clear();
         for (MarketCollectionEntity entity : totalList) {
             if (entity != null && entity.getId() != null) {
                 currentIds.add(entity.getId());
+                BuyConstant.picMap.put(entity.getCoverPicUrl(),entity.getId());
             }
         }
 

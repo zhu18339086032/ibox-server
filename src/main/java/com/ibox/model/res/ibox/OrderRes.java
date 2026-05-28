@@ -6,4 +6,6 @@ import lombok.Data;
 @JsonIgnoreProperties(ignoreUnknown = true)
 @Data
 public class OrderRes {
+
+    private String orderUuid;
 }

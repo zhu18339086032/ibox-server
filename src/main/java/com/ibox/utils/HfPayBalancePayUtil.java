@@ -1,6 +1,11 @@
 package com.ibox.utils;
 
 import com.alibaba.fastjson.JSONObject;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.ibox.client.IboxClient;
+import com.ibox.client.impl.DefaultIboxClient;
+import com.ibox.constants.UrlConstant;
+import com.ibox.model.res.ibox.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -121,23 +126,6 @@ public final class HfPayBalancePayUtil {
         }
     }
 
-    public static String paystatquery(String uuid) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("uuid",uuid);
-        HttpEntity<String> entity = new HttpEntity<>(JSONObject.toJSONString(new HashMap<>()), headers);
-        try {
-            log.info("【汇付状态确认】开始发起请求, uuid:{}", uuid);
-            ResponseEntity<String> response = REST_TEMPLATE.postForEntity("https://hfpay.cloudpnr.com/api/hfpwalleth5/paystatquery", entity, String.class);
-            String responseBody = response.getBody();
-            log.info("【汇付状态确认】请求完成, statusCode:{}, response:{}", response.getStatusCode().value(), responseBody);
-            return responseBody;
-        } catch (Exception e) {
-            throw e;
-        }
-    }
-
-
     /**
      * 直接发起汇付余额支付请求。
      *
@@ -253,20 +241,45 @@ public final class HfPayBalancePayUtil {
         return merCustId;
     }
 
+    /**
+     * 提取uuid
+     */
+    public static String extractUuidFromLink(String link) {
+        if (link == null || link.isBlank()) {
+            return null;
+        }
+        int idx = link.indexOf("uuid=");
+        if (idx < 0) {
+            return null;
+        }
+        String uuid = link.substring(idx + 5);
+        int end = uuid.indexOf('&');
+        return end >= 0 ? uuid.substring(0, end) : uuid;
+    }
+
 
     /**
      * 本地联调入口。
      * 可直接修改 uuid 和 password 进行测试。
      */
     public static void main(String[] args) {
-        String uuid = "";
+        String token1 = "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJHYUtfN0VMOFFDNU5oc0FOMTJzOGFFYUdPdVJPcEJEcXFERnViOUpLY09nIn0.eyJleHAiOjE3ODI0ODMzOTgsImlhdCI6MTc3OTg5MTM5OCwianRpIjoiZmFlNjdkYmMtMTZhZS00ODlkLTkwMmEtZWFkNWM4M2RlOTFlIiwiaXNzIjoiaHR0cHM6Ly9rZXljbG9hay5pYm94LmNvbS9yZWFsbXMvaWJveCIsImF1ZCI6WyJyZWFsbS1tYW5hZ2VtZW50IiwiYWNjb3VudCJdLCJzdWIiOiJjNTA5ODJkMC1jNjY5LTQ4M2QtYmZjZC0yMjMzMmM3YjFjMzYiLCJ0eXAiOiJCZWFyZXIiLCJhenAiOiJ1c2VyLWNsaWVudCIsInNlc3Npb25fc3RhdGUiOiI5YTMxZDk2Ny1kMGUwLTRlMDYtYmZjOC01ZTI5MDI1ZDJhZWMiLCJhY3IiOiIxIiwiYWxsb3dlZC1vcmlnaW5zIjpbIi8qIl0sInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJvZmZsaW5lX2FjY2VzcyIsImRlZmF1bHQtcm9sZXMtaWJveCIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsicmVhbG0tbWFuYWdlbWVudCI6eyJyb2xlcyI6WyJtYW5hZ2UtdXNlcnMiXX0sImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sInNjb3BlIjoiaWJveC1zY29wZSBwcm9maWxlIGVtYWlsIiwic2lkIjoiOWEzMWQ5NjctZDBlMC00ZTA2LWJmYzgtNWUyOTAyNWQyYWVjIiwiZW1haWxfdmVyaWZpZWQiOmZhbHNlLCJpZFZlcmlmaWVkIjoxLCJwYXltZW50VXNlcklkIjoiMTAwMDg1MDA2IiwicHJlZmVycmVkX3VzZXJuYW1lIjoiMTgzMzkwODYwMzIiLCJ3YWxsZXRBZGRyZXNzIjoiMHhjOTBkMWVjNjEzYzNjMzM4OTYzYmUzZmIxMzY0ZGRhYmI0ZmVlOTA0IiwidXNlcklkIjoxODI0MTk3fQ.Zzrefmst7yS1LL8BtOZNkFw-Zxeb2mL_J98LCjuygLjmQZXYA7PK3_30CFpub9zPQl0qNA9HhF-tKaJSkKF0JvHvvUYg-HglpCNZXG1FA_bihWc1bK3qwIHz1oNsu_M_mZ-qKQO1BloAnTkVMVeTQRUG6umdnwj3_PTCRyylVHNdbRYROoKP2nd3E86969ql1LkZ3XuYu0giwSL8Y1DY5gWQg9vgUHdbOYuKk7YpKv3QbKf6x-wTZMIBA63tmcCWX6zw9MpCR-Q_yWnwq4kxpkQkr7tkTIRSA2jrLW1bnkILLDkng2FvGA7G_xXH9J0UEmQ9MINUVCsLRcbjpgrJ8w";
+        String token2 = "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJHYUtfN0VMOFFDNU5oc0FOMTJzOGFFYUdPdVJPcEJEcXFERnViOUpLY09nIn0.eyJleHAiOjE3ODEwOTE3NjMsImlhdCI6MTc3ODQ5OTc2MywianRpIjoiMGFkMTljZjMtMmUzOC00NmQxLTg2OTEtZDRhZGVlYjZhNDg2IiwiaXNzIjoiaHR0cHM6Ly9rZXljbG9hay5pYm94LmNvbS9yZWFsbXMvaWJveCIsImF1ZCI6WyJyZWFsbS1tYW5hZ2VtZW50IiwiYWNjb3VudCJdLCJzdWIiOiI5MjJhNTE5NC1lYjE1LTRlYTAtOGQ1Yy0wNzVlNWYyM2ZmYTciLCJ0eXAiOiJCZWFyZXIiLCJhenAiOiJ1c2VyLWNsaWVudCIsInNlc3Npb25fc3RhdGUiOiI1YjdiNDliNi0xM2IyLTQ2ODktOTE1Yy04M2JjMTZkM2M4NjMiLCJhY3IiOiIxIiwiYWxsb3dlZC1vcmlnaW5zIjpbIi8qIl0sInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJvZmZsaW5lX2FjY2VzcyIsImRlZmF1bHQtcm9sZXMtaWJveCIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsicmVhbG0tbWFuYWdlbWVudCI6eyJyb2xlcyI6WyJtYW5hZ2UtdXNlcnMiXX0sImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sInNjb3BlIjoiaWJveC1zY29wZSBwcm9maWxlIGVtYWlsIiwic2lkIjoiNWI3YjQ5YjYtMTNiMi00Njg5LTkxNWMtODNiYzE2ZDNjODYzIiwiaGFzRGVzdHJveWVkIjowLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsImlkVmVyaWZpZWQiOjEsInBheW1lbnRVc2VySWQiOiI5MjJhNTE5NC1lYjE1LTRlYTAtOGQ1Yy0wNzVlNWYyM2ZmYTciLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiIxOTEwNjcxMTU5MCIsIndhbGxldEFkZHJlc3MiOiIweDQ5YzIwNjRjODU4MDI4NmJlNTI4MzEyYWEyNmEzM2UxZDgzOGViOGIiLCJpc1Rlc3RlciI6MCwidXNlcklkIjozOTE5NjA4fQ.Vy0ZCD5YaJMPHL_vIOxg8LWmcwaDOE6dVX6v8AWgoJTLBu9po68kZJJ5UwgX4B28HYSiyx-CFTW9ug0ttNwUPG8QfOeWfuKha1ftpecOg0t0GXVlqYV47zTsK0aet-dO8NWCqgmPNe5M0amsBbKaFqEqrdMJ_QxXBngNa1zLxw6wo9k5pQ_DQiH9I8GGYSH3ZLw3qmI6NFGRIeZdo70i2rN9ficxfZhu5bpt366Q9Jrrx8fqhO7f30fw-Jc3SoKpLY7zt-Uj_6sgk-0v3bsD3e11NoSc3pRqDfjuKUX9QANWVMeFwVcHBhAwkcDnMbjXt76euc3cLTmCV-rKQN5AKA";
+        IboxClient iboxClient = new DefaultIboxClient();
+        IboxApiResponse<IboxPageDataRes<OrderRes>> listResponse  = iboxClient.get(token1, UrlConstant.ORDERS_URL, null, new TypeReference<>() {
+        });
+        System.out.println(listResponse);
+        OrderRes orderRes = listResponse.getData().getList().getFirst();
+        IboxApiResponse<OrderPaymentInfoRes> paymentInfoResponse = iboxClient.get(token1, String.format(UrlConstant.ORDER_PAYMENT_INFO_URL, orderRes.getOrderUuid(), 0), null, OrderPaymentInfoRes.class);
+        System.out.println(paymentInfoResponse);
+        String uuid = extractUuidFromLink(paymentInfoResponse.getData().getLink());
         String password = "347364";
-        String response0 = paystatquery(uuid);
         String response1 = transverifyquery(uuid);
         String response2 = balancePay(uuid, password);
-        System.out.println("响应结果0: " + response0);
         System.out.println("响应结果1: " + response1);
         System.out.println("响应结果2: " + response2);
+        //响应结果1: {"resp_code":"C00000","resp_desc":"成功","unique_id":"default task-487","req_seq_id":"HFPWALLET26052823395791805011","req_date":"20260528","password_verify_flag":"0","face_verify_flag":"1","wish_person_flag":"1","sms_verify_flag":"1","nsms_verify_flag":"1","ai_call_verify_flag":"1","verify_trans_method":"0"}
+        //响应结果2: {"resp_code":"C00000","resp_desc":"成功","unique_id":"default task-350","req_seq_id":"HFPWALLET26052823395891805033","req_date":"20260528"}
     }
 
     private static RestTemplate createRestTemplate() {

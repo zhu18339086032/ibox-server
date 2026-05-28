@@ -8,6 +8,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.ibox.client.IboxClient;
 import com.ibox.common.IboxAccountCache;
 import com.ibox.common.PurchaseTaskRuntimeManager;
+import com.ibox.constants.BuyConstant;
 import com.ibox.constants.UrlConstant;
 import com.ibox.entity.IboxAccountEntity;
 import com.ibox.entity.PurchaseOrderEntity;
@@ -179,6 +180,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         entity.setId(id);
         entity.setRunning(0);
         purchaseTaskService.updateById(entity);
+        BuyConstant.buyMap.remove(entity.getDigitalCollectionGroupId(),entity.getMaxSinglePrice());
         return purchaseTaskService.removeById(id);
     }
 
@@ -223,6 +225,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
 
         taskAccountIndexMap.put(id, new AtomicInteger(0));
         taskScanWindowMap.remove(id);
+        BuyConstant.buyMap.put(task.getDigitalCollectionGroupId(),task.getMaxSinglePrice());
         boolean started = purchaseTaskRuntimeManager.start(id, () -> executeTaskLoop(task.getId()));
         if (started) {
             PurchaseTaskEntity update = new PurchaseTaskEntity();
@@ -253,6 +256,8 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         PurchaseTaskEntity update = new PurchaseTaskEntity();
         update.setId(id);
         update.setRunning(0);
+
+        BuyConstant.buyMap.remove(update.getDigitalCollectionGroupId(),update.getMaxSinglePrice());
         purchaseTaskService.updateById(update);
 
         res.setSuccess(stopped);
@@ -469,9 +474,6 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
             log.warn("【批量购买任务】响应为空或缺少业务码，不计入有效请求，taskId:{}, accountId:{}", task.getId(), account.getId());
             return PurchaseResult.invalid();
         }
-        if (purchaseResponse.getMessage().contains("未支付")) {
-            feishuMessageUtil.sendText(account.getAccountName() + ":有待支付订单", account.getId() + "buy", 3);
-        }
         if (!isPurchaseSuccess(purchaseResponse)) {
             return PurchaseResult.validFail();
         }
@@ -533,31 +535,11 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
                 log.warn("【批量购买任务】获取订单支付信息失败，orderId:{}, response:{}", orderId, JSONObject.toJSONString(paymentInfoResponse));
                 return;
             }
-            log.info("【批量购买任务】待支付订单链接，orderId:{}, paymentPlatformCode:{}, link:{}", orderId, paymentInfoResponse.getData().getPaymentPlatformCode(), paymentInfoResponse.getData().getLink());
-//            String uuid = extractUuidFromLink(paymentInfoResponse.getData().getLink());
-//            HfPayBalancePayUtil.transverifyquery(uuid);
-//            String payBody = HfPayBalancePayUtil.balancePay(uuid, "347364");
-//            log.info("【批量购买任务】支付结果：{}", payBody);
         } catch (Exception e) {
             log.warn("【批量购买任务】获取订单支付信息异常，orderId:{}", orderId, e);
         }
     }
 
-    /**
-     * 提取uuid
-     */
-    public static String extractUuidFromLink(String link) {
-        if (link == null || link.isBlank()) {
-            return null;
-        }
-        int idx = link.indexOf("uuid=");
-        if (idx < 0) {
-            return null;
-        }
-        String uuid = link.substring(idx + 5);
-        int end = uuid.indexOf('&');
-        return end >= 0 ? uuid.substring(0, end) : uuid;
-    }
 
 
     /**
@@ -639,10 +621,6 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         log.info("【快速购买任务】下单响应，taskId:{}, accountId:{}, result:{}", task.getId(), account.getId(), JSONObject.toJSONString(purchaseResponse));
         if (purchaseResponse == null || purchaseResponse.getCode() == null) {
             return PurchaseResult.invalid();
-        }
-        if (purchaseResponse.getMessage().contains("未支付")) {
-            feishuMessageUtil.sendText(account.getAccountName() + ":有待支付订单", account.getId() + "buy", 3);
-            sleep(10000);
         }
         if (!isPurchaseSuccess(purchaseResponse)) {
             return PurchaseResult.validFail();
