@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.ibox.entity.MarketCollectionEntity;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 市场藏品服务接口
@@ -24,4 +25,12 @@ public interface MarketCollectionService extends IService<MarketCollectionEntity
      * @return 是否成功
      */
     boolean saveOrUpdateMarketCollections(List<MarketCollectionEntity> list);
+
+    /**
+     * 将不在当前快照中的市场藏品逻辑删除。
+     *
+     * @param currentIds 当前快照中的藏品ID集合
+     * @return 是否成功
+     */
+    boolean markMissingAsDeleted(Set<Long> currentIds);
 }

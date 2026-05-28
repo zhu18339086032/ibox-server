@@ -15,6 +15,7 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeMap;
@@ -30,6 +31,11 @@ public final class HfPayBalancePayUtil {
      * 汇付余额支付接口地址。
      */
     public static final String BALANCE_PAY_URL = "https://hfpay.cloudpnr.com/api/hfpwalleth5/balancepay";
+
+    /**
+     * 前置
+     */
+    public static final String TRANSVERIFY_QUERY_URL = "https://hfpay.cloudpnr.com/api/hfpwalleth5/transverifyquery";
 
     /**
      * 3DES 初始化向量。
@@ -76,6 +82,61 @@ public final class HfPayBalancePayUtil {
 
         return new BalancePayRequest(BALANCE_PAY_URL, merCustId, encryptedPassword, headers, JSONObject.toJSONString(body));
     }
+
+    private static TransverifyQueryReq buildTransverifyQuery(String uuid) {
+        String merCustId = buildMerCustId(uuid);
+        String trans_type = "30";
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("dev_info_json", DEV_INFO_JSON);
+        body.put("trans_type", trans_type);
+
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("uuid", uuid);
+        headers.put("check_value", buildCheckValue(body));
+        headers.put("mer_cust_id", merCustId);
+        return new TransverifyQueryReq(TRANSVERIFY_QUERY_URL, merCustId, trans_type, headers, JSONObject.toJSONString(body));
+    }
+
+    /**
+     * 状态确认
+     *
+     * @param uuid
+     */
+    public static String transverifyquery(String uuid) {
+        TransverifyQueryReq request = buildTransverifyQuery(uuid);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        request.headers().forEach(headers::set);
+
+        HttpEntity<String> entity = new HttpEntity<>(request.bodyJson(), headers);
+        try {
+            log.info("【汇付状态确认】开始发起请求, uuid:{}, merCustId:{}", maskUuid(uuid), request.merCustId());
+            ResponseEntity<String> response = REST_TEMPLATE.postForEntity(request.url(), entity, String.class);
+            String responseBody = response.getBody();
+            log.info("【汇付状态确认】请求完成, statusCode:{}, response:{}", response.getStatusCode().value(), responseBody);
+            return responseBody;
+        } catch (Exception e) {
+            log.error("【汇付状态确认】请求异常, uuid:{}, merCustId:{}, url:{}", maskUuid(uuid), request.merCustId(), request.url(), e);
+            throw e;
+        }
+    }
+
+    public static String paystatquery(String uuid) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("uuid",uuid);
+        HttpEntity<String> entity = new HttpEntity<>(JSONObject.toJSONString(new HashMap<>()), headers);
+        try {
+            log.info("【汇付状态确认】开始发起请求, uuid:{}", uuid);
+            ResponseEntity<String> response = REST_TEMPLATE.postForEntity("https://hfpay.cloudpnr.com/api/hfpwalleth5/paystatquery", entity, String.class);
+            String responseBody = response.getBody();
+            log.info("【汇付状态确认】请求完成, statusCode:{}, response:{}", response.getStatusCode().value(), responseBody);
+            return responseBody;
+        } catch (Exception e) {
+            throw e;
+        }
+    }
+
 
     /**
      * 直接发起汇付余额支付请求。
@@ -198,18 +259,14 @@ public final class HfPayBalancePayUtil {
      * 可直接修改 uuid 和 password 进行测试。
      */
     public static void main(String[] args) {
-        String uuid = "hfpwallet6666000162413365payb3bd8ef8-3f38-4b05-a45d-60510abbdc04";
+        String uuid = "";
         String password = "347364";
-
-        BalancePayRequest request = build(uuid, password);
-        System.out.println("请求地址: " + request.url());
-        System.out.println("商户号: " + request.merCustId());
-        System.out.println("加密密码: " + request.encryptedPassword());
-        System.out.println("请求头: " + JSONObject.toJSONString(request.headers()));
-        System.out.println("请求体: " + request.bodyJson());
-
-        String response = balancePay(uuid, password);
-        System.out.println("响应结果: " + response);
+        String response0 = paystatquery(uuid);
+        String response1 = transverifyquery(uuid);
+        String response2 = balancePay(uuid, password);
+        System.out.println("响应结果0: " + response0);
+        System.out.println("响应结果1: " + response1);
+        System.out.println("响应结果2: " + response2);
     }
 
     private static RestTemplate createRestTemplate() {
@@ -265,5 +322,9 @@ public final class HfPayBalancePayUtil {
      */
     public record BalancePayRequest(String url, String merCustId, String encryptedPassword, Map<String, String> headers,
                                     String bodyJson) {
+    }
+
+    public record TransverifyQueryReq(String url, String merCustId, String trans_type, Map<String, String> headers,
+                                      String bodyJson) {
     }
 }

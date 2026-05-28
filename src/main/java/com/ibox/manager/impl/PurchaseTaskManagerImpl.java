@@ -154,9 +154,19 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
     @Override
     public boolean updateById(PurchaseTaskUpdateReq req) {
         PurchaseTaskEntity entity = new PurchaseTaskEntity();
-        BeanUtils.copyProperties(req, entity);
+        entity.setId(req.getId());
+        entity.setTaskName(req.getTaskName());
+        entity.setDigitalCollectionGroupId(req.getDigitalCollectionGroupId());
+        entity.setCollectionName(req.getCollectionName());
         entity.setAccountIds(joinAccountIds(req.getAccountIds()));
+        entity.setMaxCount(req.getMaxCount());
+        entity.setMaxSinglePrice(req.getMaxSinglePrice());
+        entity.setIntervalMillis(req.getIntervalMillis());
+        entity.setPaymentPlatformCode(req.getPaymentPlatformCode());
         entity.setTaskType(normalizeTaskType(req.getTaskType()));
+        entity.setStatus(req.getStatus());
+        entity.setRunning(req.getRunning());
+        entity.setRemark(req.getRemark());
         taskAccountIndexMap.remove(req.getId());
         return purchaseTaskService.updateById(entity);
     }
@@ -524,8 +534,10 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
                 return;
             }
             log.info("【批量购买任务】待支付订单链接，orderId:{}, paymentPlatformCode:{}, link:{}", orderId, paymentInfoResponse.getData().getPaymentPlatformCode(), paymentInfoResponse.getData().getLink());
-            String payBody = HfPayBalancePayUtil.balancePay(extractUuidFromLink(paymentInfoResponse.getData().getLink()), "347364");
-            log.info("【批量购买任务】支付结果：{}", payBody);
+//            String uuid = extractUuidFromLink(paymentInfoResponse.getData().getLink());
+//            HfPayBalancePayUtil.transverifyquery(uuid);
+//            String payBody = HfPayBalancePayUtil.balancePay(uuid, "347364");
+//            log.info("【批量购买任务】支付结果：{}", payBody);
         } catch (Exception e) {
             log.warn("【批量购买任务】获取订单支付信息异常，orderId:{}", orderId, e);
         }

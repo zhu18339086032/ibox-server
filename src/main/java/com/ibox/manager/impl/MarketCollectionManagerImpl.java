@@ -25,7 +25,9 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 市场藏品服务实现类
@@ -108,11 +110,20 @@ public class MarketCollectionManagerImpl implements MarketCollectionManager {
         }
 
         if (totalList.isEmpty()) {
+            marketCollectionCache.refresh(totalList);
             return 0;
         }
 
-        marketCollectionCache.refresh(totalList);
+        Set<Long> currentIds = new LinkedHashSet<>();
+        for (MarketCollectionEntity entity : totalList) {
+            if (entity != null && entity.getId() != null) {
+                currentIds.add(entity.getId());
+            }
+        }
+
         marketCollectionService.saveOrUpdateMarketCollections(totalList);
+        marketCollectionService.markMissingAsDeleted(currentIds);
+        marketCollectionCache.refresh(totalList);
         return totalList.size();
     }
 

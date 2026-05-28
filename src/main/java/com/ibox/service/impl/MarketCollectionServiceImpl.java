@@ -8,6 +8,7 @@ import com.ibox.service.MarketCollectionService;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 市场藏品Service业务层处理
@@ -36,5 +37,16 @@ public class MarketCollectionServiceImpl extends ServiceImpl<MarketCollectionMap
     @Override
     public boolean saveOrUpdateMarketCollections(List<MarketCollectionEntity> list) {
         return this.saveOrUpdateBatch(list);
+    }
+
+    @Override
+    public boolean markMissingAsDeleted(Set<Long> currentIds) {
+        LambdaQueryWrapper<MarketCollectionEntity> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.notIn(currentIds != null && !currentIds.isEmpty(), MarketCollectionEntity::getId, currentIds);
+        queryWrapper.eq(MarketCollectionEntity::getDeleted, 0);
+
+        MarketCollectionEntity update = new MarketCollectionEntity();
+        update.setDeleted(1);
+        return this.update(update, queryWrapper);
     }
 }
