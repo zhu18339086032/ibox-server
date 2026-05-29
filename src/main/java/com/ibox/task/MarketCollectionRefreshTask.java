@@ -1,4 +1,4 @@
-package com.ibox.common;
+package com.ibox.task;
 
 import com.ibox.manager.MarketCollectionManager;
 import lombok.extern.slf4j.Slf4j;

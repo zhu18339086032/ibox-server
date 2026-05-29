@@ -1,10 +1,13 @@
 package com.ibox.constants;
 
 import java.math.BigDecimal;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class BuyConstant {
-    public static Map<Long, BigDecimal> buyMap = new HashMap<>();
-    public static Map<String, Long> picMap = new HashMap<>();
+    // id-价格
+        public static Map<Long, BigDecimal> buyMap = new ConcurrentHashMap<>();
+
+    // 图片地址-id
+    public static Map<String, Long> picMap = new ConcurrentHashMap<>();
 }
