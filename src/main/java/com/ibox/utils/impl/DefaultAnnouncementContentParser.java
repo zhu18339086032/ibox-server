@@ -21,7 +21,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     /**
      * Keywords that should be excluded from parse results.
      */
-    private static final List<String> EXCLUDED_KEYWORDS = List.of("万能材料", "新春限定", "扶光踏梦", "秀山", "大镖客", "一路牛", "蕃红李李·巴蛇", "领头狼", "锦鲤版", "晴", "马到成功");
+    private static final List<String> EXCLUDED_KEYWORDS = List.of("万能材料", "新春限定", "扶光踏梦", "秀山", "大镖客", "蕃红李李·巴蛇", "锦鲤版", "晴", "马到成功");
 
     /**
      * Noise markers used to cut off the trailing non-target goods section.
@@ -36,13 +36,10 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
         if (category != null && category.contains("寄售公告")) {
             LinkedHashSet<String> names = new LinkedHashSet<>();
             extractCollectionNamesToSet(title, names, null);
+            extractCollectionNamesToSet(toPlainText(content), names, null);
             List<String> result = new ArrayList<>(names);
-            log.info("【公告内容解析】寄售公告标题解析结果:{}", result);
+            log.info("【公告内容解析】寄售公告解析结果:{}", result);
             return result;
-        }
-        if (category != null && category.contains("合成公告") && isAdjustmentTitle(title)) {
-            log.info("【公告内容解析】合成公告标题命中调整类关键词，跳过解析: {}", title);
-            return Collections.emptyList();
         }
         return parseSynthesisAnnouncement(content);
     }
@@ -306,7 +303,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
         for (String marker : NOISE_TAIL_KEYWORDS) {
             int markerIndex = text.indexOf(marker);
             if (markerIndex >= 0 && (startIndex < 0 || markerIndex < startIndex)) {
-                startIndex = markerIndex;
+                startIndex = findLineStart(text, markerIndex);
             }
         }
         if (startIndex < 0) {
@@ -315,6 +312,17 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
         LinkedHashSet<String> garbageGoods = new LinkedHashSet<>();
         extractCollectionNamesToSet(text.substring(startIndex), garbageGoods, null);
         return new TailParseResult(text.substring(0, startIndex), garbageGoods);
+    }
+
+    /**
+     * Finds the start index of the current line so tail parsing can include names before the marker.
+     */
+    private int findLineStart(String text, int index) {
+        if (index <= 0) {
+            return 0;
+        }
+        int lineStart = text.lastIndexOf('\n', index - 1);
+        return lineStart < 0 ? 0 : lineStart + 1;
     }
 
     /**

@@ -51,7 +51,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
     /**
      * 候选藏品允许下单的最小地板价。
      */
-    private static final BigDecimal MIN_FLOOR_PRICE = new BigDecimal("40");
+    private static final BigDecimal MIN_FLOOR_PRICE = new BigDecimal("100");
 
     /**
      * 首页推荐位固定 areaType。
@@ -187,25 +187,49 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
 
         for (MatchedMarketCollectionRes matched : candidates) {
             log.info("【批量下单】开始尝试购买藏品:{}, ID:{}, 地板价:{}", matched.getName(), matched.getId(), matched.getFloorPrice());
-            purchaseCount = matched.getFloorPrice().compareTo(MIN_FLOOR_PRICE) <= 0 ? 9 : purchaseCount;
+            purchaseCount = matched.getFloorPrice().compareTo(MIN_FLOOR_PRICE) <= 0 ? 6 : purchaseCount;
             BatchPurchaseConsignmentOrdersReq req = buildBatchPurchaseRequest(matched.getId(), purchaseCount, resolveMaxSinglePrice(matched.getFloorPrice(), priceLimit), paymentPlatformCode);
-
-            long purchaseStartAt = System.nanoTime();
-            IboxApiResponse<Map<String, Object>> purchaseResponse = submitBatchPurchase(account, req);
-            long purchaseCostMs = elapsedMs(purchaseStartAt);
-            if (isPurchaseSuccess(purchaseResponse)) {
-                String orderUuid = extractOrderUuid(purchaseResponse);
-                log.info("【公告监控耗时】uuid:{}, listCostMs:{}, detailCostMs:{}, parseCostMs:{}, matchCostMs:{}, purchaseCostMs:{}, totalCostMs:{}, candidate:{}", latest.getUuid(), listCostMs, detailCostMs, parseCostMs, matchCostMs, purchaseCostMs, elapsedMs(startAt), matched.getName());
-                notifyOrderSuccess(account, latest, matched, orderUuid);
+            new Thread(() -> {
+                try {
+                    tryPurchaseCandidate(account, latest, matched, req, listCostMs, detailCostMs, parseCostMs, matchCostMs, startAt);
+                } catch (Exception e) {
+                    log.error("【批量下单】下单成功通知失败", e);
+                }
+            }).start();
+            if (tryPurchaseCandidate(account, latest, matched, req, listCostMs, detailCostMs, parseCostMs, matchCostMs, startAt)) {
                 return;
             }
-            if (purchaseResponse.getMessage().contains("未支付")) {
-                feishuMessageUtil.sendText(account.getAccountName() + ":有待支付订单", account.getId() + "buy", 3);
-            }
-            log.info("【批量下单】下单失败:{}, purchaseCostMs:{}, candidate:{}", JSONObject.toJSONString(purchaseResponse), purchaseCostMs, matched.getName());
         }
 
         log.warn("【公告监控耗时】所有候选下单失败, uuid:{}, listCostMs:{}, detailCostMs:{}, parseCostMs:{}, matchCostMs:{}, totalCostMs:{}, candidates:{}", latest.getUuid(), listCostMs, detailCostMs, parseCostMs, matchCostMs, elapsedMs(startAt), candidates.size());
+    }
+
+    /**
+     * 尝试购买单个候选藏品。
+     */
+    private boolean tryPurchaseCandidate(IboxAccountEntity account,
+                                         AnnouncementRes latest,
+                                         MatchedMarketCollectionRes matched,
+                                         BatchPurchaseConsignmentOrdersReq req,
+                                         long listCostMs,
+                                         long detailCostMs,
+                                         long parseCostMs,
+                                         long matchCostMs,
+                                         long startAt) {
+        long purchaseStartAt = System.nanoTime();
+        IboxApiResponse<Map<String, Object>> purchaseResponse = submitBatchPurchase(account, req);
+        long purchaseCostMs = elapsedMs(purchaseStartAt);
+        if (isPurchaseSuccess(purchaseResponse)) {
+            String orderUuid = extractOrderUuid(purchaseResponse);
+            log.info("【公告监控耗时】uuid:{}, listCostMs:{}, detailCostMs:{}, parseCostMs:{}, matchCostMs:{}, purchaseCostMs:{}, totalCostMs:{}, candidate:{}", latest.getUuid(), listCostMs, detailCostMs, parseCostMs, matchCostMs, purchaseCostMs, elapsedMs(startAt), matched.getName());
+            notifyOrderSuccess(account, latest, matched, orderUuid);
+            return true;
+        }
+        if (purchaseResponse != null && purchaseResponse.getMessage() != null && purchaseResponse.getMessage().contains("未支付")) {
+            feishuMessageUtil.sendText(account.getAccountName() + ":有待支付订单", account.getId() + "buy", 3);
+        }
+        log.info("【批量下单】下单失败:{}, purchaseCostMs:{}, candidate:{}", JSONObject.toJSONString(purchaseResponse), purchaseCostMs, matched.getName());
+        return false;
     }
 
     /**
@@ -233,7 +257,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
             }
             List<HomeActivityAreaItemRes> list = response.getData().getList();
             Set<Long> seenIds = announcementStateCache.getOrCreateRecommendAreaSeenIds(config.getId());
-            log.info("【推荐位监控】推荐位数量:{}",seenIds);
+            log.info("【推荐位监控】推荐位数量:{}", seenIds);
             if (seenIds.isEmpty()) {
                 for (HomeActivityAreaItemRes item : list) {
                     if (item != null && item.getId() != null) {
