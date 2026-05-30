@@ -1,6 +1,5 @@
 package com.ibox.common;
 
-import com.ibox.constants.BuyConstant;
 import com.ibox.entity.IboxAccountEntity;
 import com.ibox.entity.MarketCollectionEntity;
 import com.ibox.service.IboxAccountService;
@@ -77,11 +76,6 @@ public class IboxStartupTask implements ApplicationRunner {
     private void loadMarketCollectionCache() {
         List<MarketCollectionEntity> list = marketCollectionService.listMarketCollection();
         marketCollectionCache.refresh(list);
-        for (MarketCollectionEntity entity : list) {
-            if (entity != null && entity.getId() != null && entity.getCoverPicUrl() != null && !entity.getCoverPicUrl().isBlank()) {
-                BuyConstant.picMap.put(entity.getCoverPicUrl(), entity.getId());
-            }
-        }
         log.info("【启动预热】市场藏品缓存加载完成，数量:{}", list.size());
     }
 }

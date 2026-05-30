@@ -6,7 +6,6 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.ibox.client.IboxClient;
 import com.ibox.common.IboxAccountCache;
 import com.ibox.common.MarketCollectionCache;
-import com.ibox.constants.BuyConstant;
 import com.ibox.constants.UrlConstant;
 import com.ibox.entity.IboxAccountEntity;
 import com.ibox.entity.MarketCollectionEntity;
@@ -16,8 +15,6 @@ import com.ibox.model.res.ibox.IboxApiResponse;
 import com.ibox.model.res.ibox.MarketCollectionRes;
 import com.ibox.model.res.web.MarketCollectionListRes;
 import com.ibox.model.res.web.PageResponse;
-import com.ibox.service.IboxAccountService;
-import com.ibox.service.IboxProxyService;
 import com.ibox.service.MarketCollectionService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,9 +37,6 @@ public class MarketCollectionManagerImpl implements MarketCollectionManager {
     private MarketCollectionService marketCollectionService;
 
     @Autowired
-    private IboxAccountService iboxAccountService;
-
-    @Autowired
     private IboxClient iboxClient;
 
     @Autowired
@@ -50,9 +44,6 @@ public class MarketCollectionManagerImpl implements MarketCollectionManager {
 
     @Autowired
     private IboxAccountCache iboxAccountCache;
-
-    @Autowired
-    private IboxProxyService iboxProxyService;
 
     @Override
     public List<MarketCollectionListRes> list() {
@@ -116,11 +107,9 @@ public class MarketCollectionManagerImpl implements MarketCollectionManager {
         }
 
         Set<Long> currentIds = new LinkedHashSet<>();
-        BuyConstant.picMap.clear();
         for (MarketCollectionEntity entity : totalList) {
             if (entity != null && entity.getId() != null) {
                 currentIds.add(entity.getId());
-                BuyConstant.picMap.put(entity.getCoverPicUrl(),entity.getId());
             }
         }
 

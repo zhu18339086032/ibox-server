@@ -11,6 +11,7 @@ import com.ibox.common.PurchaseTaskRuntimeManager;
 import com.ibox.constants.BuyConstant;
 import com.ibox.constants.UrlConstant;
 import com.ibox.entity.IboxAccountEntity;
+import com.ibox.entity.MarketCollectionEntity;
 import com.ibox.entity.PurchaseOrderEntity;
 import com.ibox.entity.PurchaseTaskEntity;
 import com.ibox.manager.PurchaseTaskManager;
@@ -27,10 +28,7 @@ import com.ibox.model.res.ibox.OrderPaymentInfoRes;
 import com.ibox.model.res.web.MonitorTaskExecuteRes;
 import com.ibox.model.res.web.PageResponse;
 import com.ibox.model.res.web.PurchaseTaskRes;
-import com.ibox.service.IboxAccountService;
-import com.ibox.service.IboxProxyService;
-import com.ibox.service.PurchaseOrderService;
-import com.ibox.service.PurchaseTaskService;
+import com.ibox.service.*;
 import com.ibox.utils.FeishuMessageUtil;
 import com.ibox.utils.HfPayBalancePayUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -123,6 +121,9 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
     @Autowired
     private IboxProxyService iboxProxyService;
 
+    @Autowired
+    private MarketCollectionService marketCollectionService;
+
     @Override
     public PageResponse<PurchaseTaskRes> list(PurchaseTaskPageReq req) {
         LambdaQueryWrapper<PurchaseTaskEntity> queryWrapper = new LambdaQueryWrapper<>();
@@ -176,11 +177,14 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
     public boolean removeById(Long id) {
         purchaseTaskRuntimeManager.stop(id);
         taskAccountIndexMap.remove(id);
+        PurchaseTaskEntity task = purchaseTaskService.getById(id);
         PurchaseTaskEntity entity = new PurchaseTaskEntity();
-        entity.setId(id);
+        entity.setId(task.getId());
         entity.setRunning(0);
         purchaseTaskService.updateById(entity);
-        BuyConstant.buyMap.remove(entity.getDigitalCollectionGroupId(),entity.getMaxSinglePrice());
+        BuyConstant.buyMap.remove(task.getDigitalCollectionGroupId(),task.getMaxSinglePrice());
+        MarketCollectionEntity marketCollectionEntity = marketCollectionService.getById(task.getDigitalCollectionGroupId());
+        BuyConstant.picMap.remove(marketCollectionEntity.getCoverPicUrl(),task.getDigitalCollectionGroupId());
         return purchaseTaskService.removeById(id);
     }
 
@@ -226,6 +230,8 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         taskAccountIndexMap.put(id, new AtomicInteger(0));
         taskScanWindowMap.remove(id);
         BuyConstant.buyMap.put(task.getDigitalCollectionGroupId(),task.getMaxSinglePrice());
+        MarketCollectionEntity marketCollectionEntity = marketCollectionService.getById(task.getDigitalCollectionGroupId());
+        BuyConstant.picMap.put(marketCollectionEntity.getCoverPicUrl(),task.getDigitalCollectionGroupId());
         boolean started = purchaseTaskRuntimeManager.start(id, () -> executeTaskLoop(task.getId()));
         if (started) {
             PurchaseTaskEntity update = new PurchaseTaskEntity();
@@ -257,7 +263,11 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         update.setId(id);
         update.setRunning(0);
 
-        BuyConstant.buyMap.remove(update.getDigitalCollectionGroupId(),update.getMaxSinglePrice());
+        PurchaseTaskEntity task = purchaseTaskService.getById(id);
+        BuyConstant.buyMap.remove(task.getDigitalCollectionGroupId(),task.getMaxSinglePrice());
+        MarketCollectionEntity marketCollectionEntity = marketCollectionService.getById(task.getDigitalCollectionGroupId());
+        BuyConstant.picMap.remove(marketCollectionEntity.getCoverPicUrl(),task.getDigitalCollectionGroupId());
+
         purchaseTaskService.updateById(update);
 
         res.setSuccess(stopped);

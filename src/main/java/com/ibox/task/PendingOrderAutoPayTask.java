@@ -64,7 +64,7 @@ public class PendingOrderAutoPayTask {
      * 定时扫描全部账号的待支付订单。
      * 命中购买任务映射且价格校验通过时，进入自动付款入口。
      */
-    @Scheduled(fixedDelay = 5000L, initialDelay = 15000L)
+    @Scheduled(fixedDelay = 5000L, initialDelay = 5000L)
     public void scanPendingOrders() {
         // 先做配置级兜底，避免任务启动后因为配置缺失一直打异常日志。
         if (!autoPayEnabled) {
@@ -75,6 +75,11 @@ public class PendingOrderAutoPayTask {
             return;
         }
 
+        if (BuyConstant.buyMap.isEmpty() || BuyConstant.picMap.isEmpty()) {
+            return;
+        }
+        log.info("【待支付自动付款】命中购买任务映射，开始扫描，buyMap:{}, picMapSize:{}", BuyConstant.buyMap, BuyConstant.picMap.size());
+
 
         List<IboxAccountEntity> accounts = iboxAccountService.lambdaQuery().orderByAsc(IboxAccountEntity::getId).list();
         if (accounts == null || accounts.isEmpty()) {
@@ -84,6 +89,9 @@ public class PendingOrderAutoPayTask {
         // 所有账号独立扫描，单个账号异常不能影响其他账号继续处理。
         for (IboxAccountEntity account : accounts) {
             try {
+                if (account.getId()==3L){
+                    continue;
+                }
                 handleAccountPendingOrders(account);
             } catch (Exception e) {
                 log.error("【待支付自动付款】处理账号异常，accountId:{}, accountName:{}", account == null ? null : account.getId(), account == null ? null : account.getAccountName(), e);
@@ -172,7 +180,7 @@ public class PendingOrderAutoPayTask {
         }
 
         // 当前支付调用先由你手动注释，保留入口和注释，后续恢复时只需要放开这一行。
-//        payPendingOrder(account, order);
+        payPendingOrder(account, order);
     }
 
     /**
