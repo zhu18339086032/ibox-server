@@ -596,7 +596,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         }
         int count = 0;
         for (ConsignmentOrderRes order : listRes.getList()) {
-            if (count >= 3) {
+            if (count >= 10) {
                 break;
             }
             if (order == null || order.getDigitalCollection() == null) {

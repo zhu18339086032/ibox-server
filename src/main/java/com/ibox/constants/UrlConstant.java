@@ -75,6 +75,30 @@ public class UrlConstant {
      */
     public static final String ORDERS_URL = SAIL_API_BASE_URL + "/order-service/orders?pageNo=%s&pageSize=%s&orderStatus=0&productType=0&orderType=0";
 
+    /**
+     * 活动合成列表接口
+     * GET https://sail-api.ibox.art/synthesis-service/synthetic/activity/list?pageNo={pageNo}&pageSize={pageSize}
+     */
+    public static final String SYNTHETIC_ACTIVITY_LIST_URL = SAIL_API_BASE_URL + "/synthesis-service/synthetic/activity/list?pageNo=%s&pageSize=%s";
+
+    /**
+     * 活动详情接口
+     * GET https://sail-api.ibox.art/synthesis-service/synthetic/activity/detail?id={activityId}
+     */
+    public static final String SYNTHETIC_ACTIVITY_DETAIL_URL = SAIL_API_BASE_URL + "/synthesis-service/synthetic/activity/detail?id=%s";
+
+    /**
+     * 合成中心详情接口
+     * GET https://sail-api.ibox.art/synthesis-service/synthetic/center/%s
+     */
+    public static final String SYNTHETIC_CENTER_DETAIL_URL = SAIL_API_BASE_URL + "/synthesis-service/synthetic/center/%s";
+
+    /**
+     * 合成确认接口
+     * POST https://sail-api.ibox.art/synthesis-service/synthetic/center/confirm?uid={uid}
+     */
+    public static final String SYNTHETIC_CONFIRM_URL = SAIL_API_BASE_URL + "/synthesis-service/synthetic/center/confirm?uid=%s";
+
     private UrlConstant() {
     }
 }
