@@ -65,12 +65,12 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
     /**
      * 每个账号每分钟固定允许 10 次有效请求。
      */
-    private static final int REQUESTS_PER_ACCOUNT_PER_MINUTE = 9;
+    private static final int REQUESTS_PER_ACCOUNT_PER_MINUTE = 8;
 
     /**
      * 快速购买任务每个账号每分钟允许的扫描次数。
      */
-    private static final int FAST_SCAN_REQUESTS_PER_ACCOUNT_PER_MINUTE = 9;
+    private static final int FAST_SCAN_REQUESTS_PER_ACCOUNT_PER_MINUTE = 10;
 
     /**
      * 快速购买扫描时每页最大条数。
