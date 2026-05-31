@@ -8,7 +8,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.ibox.client.IboxClient;
 import com.ibox.common.IboxAccountCache;
 import com.ibox.common.SyntheticTaskRuntimeManager;
-import com.ibox.constants.TokenConstant;
 import com.ibox.constants.UrlConstant;
 import com.ibox.entity.IboxAccountEntity;
 import com.ibox.entity.SyntheticTaskEntity;
@@ -54,19 +53,20 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
  * 活动合成任务管理器实现。
  *
- * <p>本版重点优化执行速度：</p>
- * <p>1. 提前查询 center detail，避免到点前再查活动上下文。</p>
- * <p>2. 提前选择材料，避免到点时再做材料匹配。</p>
- * <p>3. 提前组装 confirm 请求体，到点直接调用最终合成接口。</p>
+ * <p>当前版本采用“单任务单账号”的执行模型：</p>
+ * <p>1. 前端只能选择一个账号。</p>
+ * <p>2. 预热阶段查询 center detail 使用任务账号 token。</p>
+ * <p>3. 最终 confirm 合成使用同一个任务账号 token。</p>
+ * <p>4. prepared context 显式绑定 accountId，避免串号。</p>
  *
- * <p>考虑到当前环境仍在联调，这里保留兜底逻辑：</p>
- * <p>如果预热失败，则自动回退到即时执行链路，确保功能不中断。</p>
+ * <p>同时保留现有联调用的两段测试逻辑：</p>
+ * <p>1. confirm 失败分支仍然会模拟累加成功次数。</p>
+ * <p>2. 自动匹配材料仍然保持“只要 album != null 就命中”的逻辑。</p>
  */
 @Slf4j
 @Service
@@ -74,33 +74,9 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
 
     private static final String MATERIAL_STRATEGY_MANUAL = "MANUAL";
     private static final String MATERIAL_STRATEGY_AUTO_MATCH = "AUTO_MATCH";
-
-    /**
-     * 进入预热窗口后，提前多久开始准备执行上下文。
-     *
-     * <p>30 秒是一个偏保守的默认值，足够覆盖一次 center detail 查询、
-     * 材料匹配、请求体组装和连接热身。</p>
-     */
     private static final long PREPARE_AHEAD_MILLIS = 30_000L;
-
-    /**
-     * 预热结果的有效期。
-     *
-     * <p>超过这个时间仍未发射，则认为预热信息可能已过旧，需要重新准备。</p>
-     */
     private static final long PREPARED_CONTEXT_EXPIRE_MILLIS = 60_000L;
 
-    /**
-     * 每个任务维护一个账号轮转下标，避免总是同一个账号先执行。
-     */
-    private final ConcurrentHashMap<Long, AtomicInteger> taskAccountIndexMap = new ConcurrentHashMap<>();
-
-    /**
-     * 每个任务维护一份预热好的执行上下文。
-     *
-     * <p>一旦进入预热窗口，我们就尽量把耗时动作前移，
-     * 到时间时只从这里取出最终请求体直接打 confirm。</p>
-     */
     private final ConcurrentHashMap<Long, PreparedExecutionContext> preparedContextMap = new ConcurrentHashMap<>();
 
     @Autowired
@@ -159,6 +135,7 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         applyDefaults(req);
         validateTask(req.getTaskName(), req.getActivityId(), req.getSyntheticId(), req.getAccountIds(),
             req.getExecuteStartTime(), req.getExecuteEndTime(), req.getMaxSyntheticCount(), req.getIntervalMillis());
+
         SyntheticTaskEntity entity = new SyntheticTaskEntity();
         BeanUtils.copyProperties(req, entity);
         entity.setAccountIds(joinLongValues(req.getAccountIds()));
@@ -176,15 +153,13 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         applyDefaults(req);
         validateTask(req.getTaskName(), req.getActivityId(), req.getSyntheticId(), req.getAccountIds(),
             req.getExecuteStartTime(), req.getExecuteEndTime(), req.getMaxSyntheticCount(), req.getIntervalMillis());
+
         SyntheticTaskEntity origin = syntheticTaskService.getById(req.getId());
         if (origin == null) {
             throw new IllegalArgumentException("任务不存在");
         }
 
-        PreparedExecutionContext oldContext = preparedContextMap.remove(req.getId());
-        if (oldContext != null) {
-            log.info("【活动合成任务】任务配置已变更，清空旧的预热上下文，taskId:{}", req.getId());
-        }
+        preparedContextMap.remove(req.getId());
 
         SyntheticTaskEntity entity = new SyntheticTaskEntity();
         entity.setId(req.getId());
@@ -210,8 +185,8 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
     @Override
     public boolean removeById(Long id) {
         syntheticTaskRuntimeManager.stop(id);
-        taskAccountIndexMap.remove(id);
         preparedContextMap.remove(id);
+
         SyntheticTaskEntity update = new SyntheticTaskEntity();
         update.setId(id);
         update.setRunning(0);
@@ -234,7 +209,7 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
             fillExecuteRes(res, false, false, "任务未启用");
             return res;
         }
-        if (CollectionUtils.isEmpty(parseLongValues(task.getAccountIds()))) {
+        if (extractSingleAccountId(task) == null) {
             fillExecuteRes(res, false, false, "任务未配置可用账号");
             return res;
         }
@@ -243,7 +218,6 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
             return res;
         }
 
-        taskAccountIndexMap.put(id, new AtomicInteger(0));
         preparedContextMap.remove(id);
         boolean started = syntheticTaskRuntimeManager.start(id, () -> executeTaskLoop(id));
         if (started) {
@@ -265,7 +239,6 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         res.setStartTime(LocalDateTime.now());
 
         boolean stopped = syntheticTaskRuntimeManager.stop(id);
-        taskAccountIndexMap.remove(id);
         preparedContextMap.remove(id);
 
         SyntheticTaskEntity update = new SyntheticTaskEntity();
@@ -277,14 +250,6 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         return res;
     }
 
-    /**
-     * 单次循环执行入口。
-     *
-     * <p>执行链路拆成三段：</p>
-     * <p>1. 未到预热窗口：低频等待</p>
-     * <p>2. 进入预热窗口：提前准备上下文</p>
-     * <p>3. 到达执行时间：直接发送 confirm</p>
-     */
     private void executeTaskLoop(Long taskId) {
         if (shouldStop(taskId)) {
             return;
@@ -313,16 +278,13 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
 
         long millisUntilExecute = Duration.between(now, task.getExecuteStartTime()).toMillis();
         if (millisUntilExecute > PREPARE_AHEAD_MILLIS) {
-            // 离执行时间还较远，不急着预热，继续低频等待。
             sleep(Math.min(millisUntilExecute - PREPARE_AHEAD_MILLIS, 1000L));
             return;
         }
 
-        // 进入预热窗口后，尽量只预热一次；如过期则重新准备。
         prepareExecutionContextIfNeeded(task);
 
         if (LocalDateTime.now().isBefore(task.getExecuteStartTime())) {
-            // 已完成预热，但还没到发射时间，保持高频短等待。
             long remainMillis = Duration.between(LocalDateTime.now(), task.getExecuteStartTime()).toMillis();
             sleep(Math.min(Math.max(remainMillis, 5L), 50L));
             return;
@@ -332,9 +294,6 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         sleep(normalizeInterval(task.getIntervalMillis()));
     }
 
-    /**
-     * 如果当前没有可用的预热上下文，或者上下文已过期，则重新预热。
-     */
     private void prepareExecutionContextIfNeeded(SyntheticTaskEntity task) {
         PreparedExecutionContext context = preparedContextMap.get(task.getId());
         if (context != null && !context.isExpired()) {
@@ -346,29 +305,15 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         }
     }
 
-    /**
-     * 预热执行上下文。
-     *
-     * <p>这里完成三件最耗时的事：</p>
-     * <p>1. 查询 center detail</p>
-     * <p>2. 解析材料</p>
-     * <p>3. 组装最终 confirm 请求体</p>
-     */
     private PreparedExecutionContext prepareExecutionContext(SyntheticTaskEntity task) {
-        List<Long> accountIds = parseLongValues(task.getAccountIds());
-        if (CollectionUtils.isEmpty(accountIds)) {
-            updateLastResult(task.getId(), "NO_ACCOUNT", "任务未配置可用账号");
-            return null;
-        }
-
-        IboxAccountEntity account = getNextAccount(task.getId(), accountIds);
+        IboxAccountEntity account = getTaskAccount(task);
         if (account == null || !StringUtils.hasText(account.getBearerToken())) {
             updateLastResult(task.getId(), "ACCOUNT_INVALID", "未找到可用账号或账号 token 为空");
             return null;
         }
 
         IboxApiResponse<SyntheticCenterRes> centerResponse = iboxClient.get(
-            TokenConstant.TOKEN_3,
+            account.getBearerToken(),
             String.format(UrlConstant.SYNTHETIC_CENTER_DETAIL_URL, task.getSyntheticId()),
             null,
             SyntheticCenterRes.class
@@ -399,19 +344,19 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         confirmReq.setSyntheticNum(1);
         confirmReq.setPreferentialAlbumIds(materialIds);
 
-        // 轻量热身：预热成功时更新最近状态，便于前端看到当前任务已准备就绪。
         updateLastResult(task.getId(), "PREPARED", "预热完成，等待执行");
-        return new PreparedExecutionContext(task.getId(), account, center, materialIds, confirmReq, System.currentTimeMillis());
+        return new PreparedExecutionContext(task.getId(), account.getId(), account, center, materialIds, confirmReq, System.currentTimeMillis());
     }
 
-    /**
-     * 到点后优先使用预热上下文直接发 confirm。
-     *
-     * <p>如果预热不存在或已失效，则回退到原来的即时执行链路，避免任务空跑。</p>
-     */
     private void firePreparedOrFallback(SyntheticTaskEntity task) {
         PreparedExecutionContext context = preparedContextMap.remove(task.getId());
         if (context == null || context.isExpired()) {
+            executeOnceFallback(task);
+            return;
+        }
+
+        Long currentAccountId = extractSingleAccountId(task);
+        if (currentAccountId == null || !Objects.equals(currentAccountId, context.getAccountId())) {
             executeOnceFallback(task);
             return;
         }
@@ -432,9 +377,16 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         if (!isSuccess(confirmResponse)) {
             String message = confirmResponse == null ? "合成接口未返回有效响应" : confirmResponse.getMessage();
             saveRecord(task, account, context.getConfirmReq(), confirmResponse, "CONFIRM_FAIL", defaultMessage(message, "合成失败"), false, null);
-            updateLastResult(task.getId(), "CONFIRM_FAIL", defaultMessage(message, "合成失败"));
-            // 按你的测试逻辑保留：失败时也允许推进模拟成功次数。
+
+            // 保留现有测试逻辑：失败分支仍然模拟累加成功次数。
             int successCount = (task.getSuccessCount() == null ? 0 : task.getSuccessCount()) + 1;
+            SyntheticTaskEntity update = new SyntheticTaskEntity();
+            update.setId(task.getId());
+            update.setSuccessCount(successCount);
+            update.setLastExecuteTime(LocalDateTime.now());
+            update.setLastResultCode("CONFIRM_FAIL");
+            update.setLastResultMessage(defaultMessage(message, "合成失败"));
+            syntheticTaskService.updateById(update);
             if (isTargetReached(task.getMaxSyntheticCount(), successCount)) {
                 stopTask(task.getId(), "已达到最大成功次数，自动停止");
             }
@@ -460,26 +412,15 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         }
     }
 
-    /**
-     * 兜底的即时执行链路。
-     *
-     * <p>当预热失败、上下文过期、账号失效时，仍沿用原来的“实时查 center -> 选材料 -> 发 confirm”流程。</p>
-     */
     private void executeOnceFallback(SyntheticTaskEntity task) {
-        List<Long> accountIds = parseLongValues(task.getAccountIds());
-        if (CollectionUtils.isEmpty(accountIds)) {
-            updateLastResult(task.getId(), "NO_ACCOUNT", "任务未配置可用账号");
-            return;
-        }
-
-        IboxAccountEntity account = getNextAccount(task.getId(), accountIds);
+        IboxAccountEntity account = getTaskAccount(task);
         if (account == null || !StringUtils.hasText(account.getBearerToken())) {
             updateLastResult(task.getId(), "ACCOUNT_INVALID", "未找到可用账号或账号 token 为空");
             return;
         }
 
         IboxApiResponse<SyntheticCenterRes> centerResponse = iboxClient.get(
-            TokenConstant.TOKEN_3,
+            account.getBearerToken(),
             String.format(UrlConstant.SYNTHETIC_CENTER_DETAIL_URL, task.getSyntheticId()),
             null,
             SyntheticCenterRes.class
@@ -524,8 +465,16 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         if (!isSuccess(confirmResponse)) {
             String message = confirmResponse == null ? "合成接口未返回有效响应" : confirmResponse.getMessage();
             saveRecord(task, account, req, confirmResponse, "CONFIRM_FAIL", defaultMessage(message, "合成失败"), false, null);
-            updateLastResult(task.getId(), "CONFIRM_FAIL", defaultMessage(message, "合成失败"));
+
+            // 保留现有测试逻辑：失败分支仍然模拟累加成功次数。
             int successCount = (task.getSuccessCount() == null ? 0 : task.getSuccessCount()) + 1;
+            SyntheticTaskEntity update = new SyntheticTaskEntity();
+            update.setId(task.getId());
+            update.setSuccessCount(successCount);
+            update.setLastExecuteTime(LocalDateTime.now());
+            update.setLastResultCode("CONFIRM_FAIL");
+            update.setLastResultMessage(defaultMessage(message, "合成失败"));
+            syntheticTaskService.updateById(update);
             if (isTargetReached(task.getMaxSyntheticCount(), successCount)) {
                 stopTask(task.getId(), "已达到最大成功次数，自动停止");
             }
@@ -551,12 +500,6 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         }
     }
 
-    /**
-     * 根据材料策略和 center 数据，决定本次要提交的材料。
-     *
-     * <p>这里继续保留你当前的测试逻辑：
-     * 自动匹配时只要 `album != null` 就能命中，不强制要求 usableNum > 0。</p>
-     */
     private List<Long> resolveMaterialAlbumIds(SyntheticTaskEntity task, SyntheticCenterRes center) {
         List<Long> manualIds = parseLongValues(task.getMaterialAlbumIds());
         if (MATERIAL_STRATEGY_MANUAL.equalsIgnoreCase(normalizeMaterialStrategy(task.getMaterialStrategy()))
@@ -574,6 +517,7 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
             }
             SyntheticAlbumRes matchedAlbum = null;
             for (SyntheticAlbumRes album : group.getAlbums()) {
+                // 保留现有测试逻辑：自动匹配只要 album != null 就命中。
                 if (album != null) {
                     matchedAlbum = album;
                     break;
@@ -617,6 +561,9 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         }
         if (CollectionUtils.isEmpty(accountIds)) {
             throw new IllegalArgumentException("至少选择一个账号");
+        }
+        if (accountIds.size() != 1) {
+            throw new IllegalArgumentException("活动合成任务只允许选择一个账号");
         }
         if (executeStartTime == null) {
             throw new IllegalArgumentException("开始时间不能为空");
@@ -674,7 +621,6 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         update.setLastExecuteTime(LocalDateTime.now());
         update.setLastResultMessage(message);
         syntheticTaskService.updateById(update);
-        taskAccountIndexMap.remove(taskId);
         preparedContextMap.remove(taskId);
         syntheticTaskRuntimeManager.stop(taskId);
     }
@@ -710,17 +656,17 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         }
     }
 
-    private IboxAccountEntity getNextAccount(Long taskId, List<Long> accountIds) {
-        AtomicInteger index = taskAccountIndexMap.computeIfAbsent(taskId, key -> new AtomicInteger(0));
-        int startIndex = Math.floorMod(index.getAndIncrement(), accountIds.size());
-        for (int offset = 0; offset < accountIds.size(); offset++) {
-            Long accountId = accountIds.get((startIndex + offset) % accountIds.size());
-            IboxAccountEntity account = getAccount(accountId);
-            if (account != null) {
-                return account;
-            }
+    private IboxAccountEntity getTaskAccount(SyntheticTaskEntity task) {
+        Long accountId = extractSingleAccountId(task);
+        return accountId == null ? null : getAccount(accountId);
+    }
+
+    private Long extractSingleAccountId(SyntheticTaskEntity task) {
+        List<Long> accountIds = parseLongValues(task.getAccountIds());
+        if (CollectionUtils.isEmpty(accountIds)) {
+            return null;
         }
-        return null;
+        return accountIds.getFirst();
     }
 
     private IboxAccountEntity getAccount(Long accountId) {
@@ -856,22 +802,17 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         return response != null && response.getCode() != null && response.getCode() == 0;
     }
 
-    /**
-     * 预热后的执行上下文。
-     */
     @Data
     @AllArgsConstructor
     private static class PreparedExecutionContext {
         private Long taskId;
+        private Long accountId;
         private IboxAccountEntity account;
         private SyntheticCenterRes center;
         private List<Long> materialIds;
         private SyntheticConfirmReq confirmReq;
         private long preparedAtMillis;
 
-        /**
-         * 超过有效期则认为上下文已经过时，需要重新预热。
-         */
         public boolean isExpired() {
             return System.currentTimeMillis() - preparedAtMillis > PREPARED_CONTEXT_EXPIRE_MILLIS;
         }

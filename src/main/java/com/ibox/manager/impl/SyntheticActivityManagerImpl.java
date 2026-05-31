@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.ibox.client.IboxClient;
 import com.ibox.constants.TokenConstant;
 import com.ibox.constants.UrlConstant;
+import com.ibox.entity.IboxAccountEntity;
 import com.ibox.manager.SyntheticActivityManager;
 import com.ibox.model.req.web.SyntheticActivityPageReq;
 import com.ibox.model.res.ibox.IboxApiResponse;
@@ -24,6 +25,7 @@ import com.ibox.model.res.web.SyntheticBurnAlbumGroupWebRes;
 import com.ibox.model.res.web.SyntheticChannelWebRes;
 import com.ibox.model.res.web.SyntheticGroupNameWebRes;
 import com.ibox.model.res.web.SyntheticTargetAlbumWebRes;
+import com.ibox.service.IboxAccountService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -40,13 +42,6 @@ import java.util.List;
 
 /**
  * 活动查询管理器实现。
- *
- * <p>这个管理器负责把 iBox 活动、通道、材料、目标产物等外部接口聚合成前端真正需要的数据结构。</p>
- *
- * <p>本次改造重点：</p>
- * <p>1. 活动列表支持展示“即将开始”的活动，方便提前配置精准执行任务。</p>
- * <p>2. 已结束活动继续过滤，不允许出现在可选活动列表中。</p>
- * <p>3. 返回活动阶段字段，方便前端清楚标识“即将开始 / 进行中”。</p>
  */
 @Slf4j
 @Service
@@ -58,6 +53,9 @@ public class SyntheticActivityManagerImpl implements SyntheticActivityManager {
 
     @Autowired
     private IboxClient iboxClient;
+
+    @Autowired
+    private IboxAccountService iboxAccountService;
 
     @Override
     public PageResponse<SyntheticActivityListItemWebRes> list(SyntheticActivityPageReq req) {
@@ -103,13 +101,17 @@ public class SyntheticActivityManagerImpl implements SyntheticActivityManager {
     }
 
     @Override
-    public SyntheticActivityDetailWebRes detail(Long activityId) {
+    public SyntheticActivityDetailWebRes detail(Long activityId, Long accountId) {
         if (activityId == null) {
             return null;
         }
+        IboxAccountEntity account = iboxAccountService.getById(accountId);
+        if (account == null || !StringUtils.hasText(account.getBearerToken())) {
+            throw new IllegalArgumentException("活动详情查询账号不存在或 token 为空");
+        }
 
         IboxApiResponse<SyntheticActivityDetailRes> response = iboxClient.get(
-            TokenConstant.TOKEN_3,
+            account.getBearerToken(),
             String.format(UrlConstant.SYNTHETIC_ACTIVITY_DETAIL_URL, activityId),
             null,
             SyntheticActivityDetailRes.class
@@ -127,7 +129,7 @@ public class SyntheticActivityManagerImpl implements SyntheticActivityManager {
         List<SyntheticChannelWebRes> channels = new ArrayList<>();
         if (!CollectionUtils.isEmpty(activity.getChannels())) {
             for (SyntheticActivityChannelRes channel : activity.getChannels()) {
-                SyntheticChannelWebRes channelRes = buildChannel(channel);
+                SyntheticChannelWebRes channelRes = buildChannel(channel, account);
                 channels.add(channelRes);
                 if (res.getStartTime() == null) {
                     res.setStartTime(channelRes.getStartTime());
@@ -150,10 +152,10 @@ public class SyntheticActivityManagerImpl implements SyntheticActivityManager {
     /**
      * 聚合单个通道详情。
      *
-     * <p>活动详情接口本身不返回完整的材料、目标产物、批量合成能力等信息，
-     * 所以这里会继续补查 center 详情接口，把前端建任务时真正关心的数据组装完整。</p>
+     * <p>center detail 也必须使用同一个账号 token，
+     * 这样返回的材料、资格、通道状态才与最终执行账号一致。</p>
      */
-    private SyntheticChannelWebRes buildChannel(SyntheticActivityChannelRes channel) {
+    private SyntheticChannelWebRes buildChannel(SyntheticActivityChannelRes channel, IboxAccountEntity account) {
         SyntheticChannelWebRes res = new SyntheticChannelWebRes();
         res.setSyntheticId(channel.getSyntheticActivityId());
         res.setChannelName(channel.getName());
@@ -172,7 +174,7 @@ public class SyntheticActivityManagerImpl implements SyntheticActivityManager {
         }
 
         IboxApiResponse<SyntheticCenterRes> centerResponse = iboxClient.get(
-            TokenConstant.TOKEN_3,
+            account.getBearerToken(),
             String.format(UrlConstant.SYNTHETIC_CENTER_DETAIL_URL, channel.getSyntheticActivityId()),
             null,
             SyntheticCenterRes.class
@@ -275,12 +277,6 @@ public class SyntheticActivityManagerImpl implements SyntheticActivityManager {
         return StringUtils.hasText(item.getName()) && item.getName().contains(keyword.trim());
     }
 
-    /**
-     * 只要活动未结束，就视为前端可选择。
-     *
-     * <p>这样既支持“进行中”的活动，也支持“即将开始”的活动；
-     * 唯一继续过滤的是“已经结束”的活动。</p>
-     */
     private boolean matchOnlyAvailable(SyntheticActivityListItemRes item, Boolean onlyAvailable) {
         if (!Boolean.TRUE.equals(onlyAvailable)) {
             return true;
@@ -295,9 +291,6 @@ public class SyntheticActivityManagerImpl implements SyntheticActivityManager {
         return supportAssistant.equals(Boolean.TRUE.equals(item.getSupportAssistant()));
     }
 
-    /**
-     * 判断活动是否已经结束。
-     */
     private boolean isEnded(SyntheticActivityListItemRes item) {
         if (!StringUtils.hasText(item.getEndTime())) {
             return false;
@@ -310,9 +303,6 @@ public class SyntheticActivityManagerImpl implements SyntheticActivityManager {
         }
     }
 
-    /**
-     * 计算活动阶段，方便前端在下拉框中标注“即将开始 / 进行中”。
-     */
     private String resolveActivityStage(SyntheticActivityListItemRes item) {
         if (!StringUtils.hasText(item.getStartTime())) {
             return ACTIVITY_STAGE_ONGOING;
@@ -327,7 +317,9 @@ public class SyntheticActivityManagerImpl implements SyntheticActivityManager {
     }
 
     private String formatMillis(Long millis) {
-        return LocalDateTime.ofInstant(Instant.ofEpochMilli(millis), ZoneId.systemDefault()).format(DATETIME_FORMATTER);
+        return millis == null
+            ? null
+            : LocalDateTime.ofInstant(Instant.ofEpochMilli(millis), ZoneId.systemDefault()).format(DATETIME_FORMATTER);
     }
 
     private boolean isSuccess(IboxApiResponse<?> response) {

@@ -24,5 +24,5 @@ public interface SyntheticActivityManager {
      * @param activityId 活动 ID
      * @return 聚合后的活动详情
      */
-    SyntheticActivityDetailWebRes detail(Long activityId);
+    SyntheticActivityDetailWebRes detail(Long activityId, Long accountId);
 }
