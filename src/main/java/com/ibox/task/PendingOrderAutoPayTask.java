@@ -89,9 +89,6 @@ public class PendingOrderAutoPayTask {
         // 所有账号独立扫描，单个账号异常不能影响其他账号继续处理。
         for (IboxAccountEntity account : accounts) {
             try {
-                if (account.getId()==3L){
-                    continue;
-                }
                 handleAccountPendingOrders(account);
             } catch (Exception e) {
                 log.error("【待支付自动付款】处理账号异常，accountId:{}, accountName:{}", account == null ? null : account.getId(), account == null ? null : account.getAccountName(), e);

@@ -62,6 +62,7 @@ public class SyntheticActivityManagerImpl implements SyntheticActivityManager {
         long pageNum = req.getPageNum() == null || req.getPageNum() <= 0 ? 1L : req.getPageNum();
         long pageSize = req.getPageSize() == null || req.getPageSize() <= 0 ? 10L : req.getPageSize();
 
+        log.info("【活动接口】开始调用 activity list, pageNum:{}, pageSize:{}", pageNum, pageSize);
         IboxApiResponse<IboxPageDataRes<SyntheticActivityListItemRes>> response = iboxClient.get(
             TokenConstant.TOKEN_3,
             String.format(UrlConstant.SYNTHETIC_ACTIVITY_LIST_URL, pageNum, pageSize),
@@ -69,6 +70,7 @@ public class SyntheticActivityManagerImpl implements SyntheticActivityManager {
             new TypeReference<>() {
             }
         );
+        log.info("【活动接口】activity list 调用结束, success:{}, pageNum:{}, pageSize:{}", isSuccess(response), pageNum, pageSize);
         if (!isSuccess(response) || response.getData() == null || CollectionUtils.isEmpty(response.getData().getList())) {
             return PageResponse.empty(pageNum, pageSize);
         }
@@ -110,12 +112,14 @@ public class SyntheticActivityManagerImpl implements SyntheticActivityManager {
             throw new IllegalArgumentException("活动详情查询账号不存在或 token 为空");
         }
 
+        log.info("【活动接口】开始调用 activity detail, activityId:{}, accountId:{}", activityId, accountId);
         IboxApiResponse<SyntheticActivityDetailRes> response = iboxClient.get(
             account.getBearerToken(),
             String.format(UrlConstant.SYNTHETIC_ACTIVITY_DETAIL_URL, activityId),
             null,
             SyntheticActivityDetailRes.class
         );
+        log.info("【活动接口】activity detail 调用结束, success:{}, activityId:{}, accountId:{}", isSuccess(response), activityId, accountId);
         if (!isSuccess(response) || response.getData() == null) {
             return null;
         }
@@ -173,12 +177,15 @@ public class SyntheticActivityManagerImpl implements SyntheticActivityManager {
             return res;
         }
 
+        log.info("【活动接口】开始调用 center detail(活动详情阶段), syntheticId:{}, accountId:{}", channel.getSyntheticActivityId(), account.getId());
         IboxApiResponse<SyntheticCenterRes> centerResponse = iboxClient.get(
             account.getBearerToken(),
             String.format(UrlConstant.SYNTHETIC_CENTER_DETAIL_URL, channel.getSyntheticActivityId()),
             null,
             SyntheticCenterRes.class
         );
+        log.info("【活动接口】center detail(活动详情阶段) 调用结束, success:{}, syntheticId:{}, accountId:{}",
+            isSuccess(centerResponse), channel.getSyntheticActivityId(), account.getId());
         if (!isSuccess(centerResponse) || centerResponse.getData() == null) {
             return res;
         }
