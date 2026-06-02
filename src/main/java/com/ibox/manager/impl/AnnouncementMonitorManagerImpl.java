@@ -451,6 +451,9 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         return floorPrice.multiply(new BigDecimal("1.5")).intValue();
     }
 
+    /**
+     * 计算推荐位监控场景下的单价上限。
+     */
     private BigDecimal resolveRecommendAreaMaxSinglePrice(MarketCollectionEntity entity, BigDecimal priceLimit) {
         if (priceLimit != null) {
             return priceLimit;
@@ -461,16 +464,25 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         return BigDecimal.ZERO;
     }
 
+    /**
+     * 解析当前请求应使用的支付平台编码。
+     */
     private Integer resolvePaymentPlatformCode(IboxAccountEntity account, IboxMonitorTaskConfigEntity config) {
         return config != null && config.getPaymentPlatformCode() != null
             ? config.getPaymentPlatformCode()
             : (account.getDefaultPaymentPlatformCode() == null ? 30 : account.getDefaultPaymentPlatformCode());
     }
 
+    /**
+     * 解析当前任务的购买次数配置。
+     */
     private int resolvePurchaseCount(IboxMonitorTaskConfigEntity config) {
         return config != null && config.getMaxCount() != null ? config.getMaxCount() : 4;
     }
 
+    /**
+     * 构建批量购买请求参数。
+     */
     private BatchPurchaseConsignmentOrdersReq buildBatchPurchaseRequest(Long collectionGroupId, int purchaseCount, int maxSinglePrice, Integer paymentPlatformCode) {
         BatchPurchaseConsignmentOrdersReq req = new BatchPurchaseConsignmentOrdersReq();
         req.setDigitalCollectionGroupId(collectionGroupId);
@@ -481,11 +493,17 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         return req;
     }
 
+    /**
+     * 调用 iBox 批量购买接口提交下单请求。
+     */
     private IboxApiResponse<Map<String, Object>> submitBatchPurchase(IboxAccountEntity account, BatchPurchaseConsignmentOrdersReq req) {
         return iboxClient.post(account.getBearerToken(), String.format(UrlConstant.BATCH_PURCHASE_CONSIGNMENT_ORDER_URL, account.getIboxUid()), req, new TypeReference<>() {
         });
     }
 
+    /**
+     * 判断批量购买接口是否返回成功下单结果。
+     */
     private boolean isPurchaseSuccess(IboxApiResponse<Map<String, Object>> purchaseResponse) {
         return purchaseResponse != null
             && purchaseResponse.getCode() != null
@@ -494,6 +512,9 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
             && purchaseResponse.getData().get("orderId") != null;
     }
 
+    /**
+     * 从下单响应中提取订单号。
+     */
     private String extractOrderUuid(IboxApiResponse<Map<String, Object>> purchaseResponse) {
         if (purchaseResponse == null || purchaseResponse.getData() == null || purchaseResponse.getData().get("orderId") == null) {
             return null;
@@ -501,6 +522,9 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         return String.valueOf(purchaseResponse.getData().get("orderId"));
     }
 
+    /**
+     * 从推荐位链接中提取商品组 ID。
+     */
     private Long extractMarketCollectionGroupId(String link) {
         if (!StringUtils.hasText(link)) {
             return null;
@@ -538,6 +562,9 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         }
     }
 
+    /**
+     * 发送推荐位监控下单成功通知。
+     */
     private void notifyRecommendAreaPurchaseSuccess(IboxAccountEntity account, HomeActivityAreaItemRes item, MarketCollectionEntity entity, String orderUuid) {
         String collectionName = entity == null || entity.getName() == null || entity.getName().isBlank() ? String.valueOf(item.getId()) : entity.getName();
         try {
@@ -636,6 +663,9 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         marketCollectionCache.refresh(list);
     }
 
+    /**
+     * 按一期覆盖策略构建“账号 -> 候选商品”的分配结果。
+     */
     private List<AnnouncementPurchaseAssignment> buildAnnouncementAssignments(IboxMonitorTaskConfigEntity config,
                                                                               List<IboxAccountEntity> accounts,
                                                                               List<MatchedMarketCollectionRes> candidates) {
@@ -664,6 +694,9 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         return assignments;
     }
 
+    /**
+     * 获取系统默认账号。
+     */
     private IboxAccountEntity getDefaultAccount() {
         IboxAccountEntity cached = iboxAccountCache.getDefaultAccount();
         if (cached != null) {
@@ -672,6 +705,9 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         throw new IllegalStateException("默认账号缓存不存在，请检查启动预热任务是否执行成功");
     }
 
+    /**
+     * 获取当前监控任务的主账号。
+     */
     private IboxAccountEntity getPrimaryAccount(IboxMonitorTaskConfigEntity config) {
         List<IboxAccountEntity> accounts = getAvailableAccounts(config);
         if (!accounts.isEmpty()) {
@@ -706,6 +742,9 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         return accounts;
     }
 
+    /**
+     * 按账号 ID 获取账号信息，并在查库成功后回填缓存。
+     */
     private IboxAccountEntity getAccountById(Long accountId) {
         if (accountId == null) {
             return null;
@@ -721,6 +760,9 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         return account;
     }
 
+    /**
+     * 解析逗号分隔的账号 ID 字符串。
+     */
     private List<Long> parseAccountIds(String accountIds) {
         if (!StringUtils.hasText(accountIds)) {
             return List.of();
