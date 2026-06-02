@@ -167,7 +167,7 @@ public class PendingOrderAutoPayTask {
         }
 
         BigDecimal orderPrice = order.getPrice();
-        if (orderPrice == null || orderPrice.compareTo(targetPrice) != 0) {
+        if (orderPrice == null || orderPrice.compareTo(targetPrice) > 0) {
             // 价格不一致时只告警不付款，避免把非任务订单当成目标订单支付掉。
             String dedupKey = "pending-order-price-mismatch:" + account.getId() + ":" + safeOrderUuid(order);
             String message = "iBox待支付订单价格不一致，已跳过自动付款。" + "账号ID：" + account.getId() + "，账号名称：" + safeText(account.getAccountName()) + "，订单ID：" + safeOrderUuid(order) + "，图片地址：" + picUrl + "，商品ID：" + groupId + "，订单价格：" + safePrice(orderPrice) + "，任务价格：" + safePrice(targetPrice);

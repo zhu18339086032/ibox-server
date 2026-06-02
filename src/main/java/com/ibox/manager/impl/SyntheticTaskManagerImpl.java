@@ -136,8 +136,7 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
     @Override
     public boolean save(SyntheticTaskSaveReq req) {
         applyDefaults(req);
-        validateTask(req.getTaskName(), req.getActivityId(), req.getSyntheticId(), req.getAccountIds(),
-            req.getExecuteStartTime(), req.getExecuteEndTime(), req.getMaxSyntheticCount(), req.getIntervalMillis());
+        validateTask(req.getTaskName(), req.getActivityId(), req.getSyntheticId(), req.getAccountIds(), req.getExecuteStartTime(), req.getExecuteEndTime(), req.getMaxSyntheticCount(), req.getIntervalMillis());
 
         SyntheticTaskEntity entity = new SyntheticTaskEntity();
         BeanUtils.copyProperties(req, entity);
@@ -158,8 +157,7 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
     @Override
     public boolean updateById(SyntheticTaskUpdateReq req) {
         applyDefaults(req);
-        validateTask(req.getTaskName(), req.getActivityId(), req.getSyntheticId(), req.getAccountIds(),
-            req.getExecuteStartTime(), req.getExecuteEndTime(), req.getMaxSyntheticCount(), req.getIntervalMillis());
+        validateTask(req.getTaskName(), req.getActivityId(), req.getSyntheticId(), req.getAccountIds(), req.getExecuteStartTime(), req.getExecuteEndTime(), req.getMaxSyntheticCount(), req.getIntervalMillis());
 
         SyntheticTaskEntity origin = syntheticTaskService.getById(req.getId());
         if (origin == null) {
@@ -373,17 +371,10 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
             return;
         }
 
-        log.info("【活动接口】开始调用 confirm(缓存直发), taskId:{}, syntheticId:{}, accountId:{}",
-            task.getId(), task.getSyntheticId(), account.getId());
-        IboxApiResponse<IboxPageDataRes<SyntheticConfirmResultRes>> confirmResponse = iboxClient.post(
-            account.getBearerToken(),
-            String.format(UrlConstant.SYNTHETIC_CONFIRM_URL, account.getIboxUid()),
-            context.getConfirmReq(),
-            new TypeReference<>() {
-            }
-        );
-        log.info("【活动接口】confirm(缓存直发) 调用结束, success:{}, taskId:{}, syntheticId:{}, accountId:{}",
-            isSuccess(confirmResponse), task.getId(), task.getSyntheticId(), account.getId());
+        log.info("【活动接口】开始调用 confirm(缓存直发), taskId:{}, syntheticId:{}, accountId:{}", task.getId(), task.getSyntheticId(), account.getId());
+        IboxApiResponse<IboxPageDataRes<SyntheticConfirmResultRes>> confirmResponse = iboxClient.post(account.getBearerToken(), String.format(UrlConstant.SYNTHETIC_CONFIRM_URL, account.getIboxUid()), context.getConfirmReq(), new TypeReference<>() {
+        });
+        log.info("【活动接口】confirm(缓存直发) 调用结束, success:{}, taskId:{}, syntheticId:{}, accountId:{}", isSuccess(confirmResponse), task.getId(), task.getSyntheticId(), account.getId());
         if (!isSuccess(confirmResponse)) {
             String message = confirmResponse == null ? "合成接口未返回有效响应" : confirmResponse.getMessage();
             saveRecord(task, account, context.getConfirmReq(), confirmResponse, "CONFIRM_FAIL", defaultMessage(message, "合成失败"), false, null);
@@ -425,22 +416,13 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
     private void executeOnceFallback(SyntheticTaskEntity task) {
         PreparedExecutionContext context = preparedContextMap.get(task.getId());
         Long currentAccountId = extractSingleAccountId(task);
-        if (context != null
-            && currentAccountId != null
-            && Objects.equals(currentAccountId, context.getAccountId())) {
+        if (context != null && currentAccountId != null && Objects.equals(currentAccountId, context.getAccountId())) {
             IboxAccountEntity cachedAccount = context.getAccount();
             if (cachedAccount != null && StringUtils.hasText(cachedAccount.getBearerToken())) {
-                log.info("【活动接口】开始调用 confirm(缓存兜底), taskId:{}, syntheticId:{}, accountId:{}",
-                    task.getId(), task.getSyntheticId(), cachedAccount.getId());
-                IboxApiResponse<IboxPageDataRes<SyntheticConfirmResultRes>> confirmResponse = iboxClient.post(
-                    cachedAccount.getBearerToken(),
-                    String.format(UrlConstant.SYNTHETIC_CONFIRM_URL, cachedAccount.getIboxUid()),
-                    context.getConfirmReq(),
-                    new TypeReference<>() {
-                    }
-                );
-                log.info("【活动接口】confirm(缓存兜底) 调用结束, success:{}, taskId:{}, syntheticId:{}, accountId:{}",
-                    isSuccess(confirmResponse), task.getId(), task.getSyntheticId(), cachedAccount.getId());
+                log.info("【活动接口】开始调用 confirm(缓存兜底), taskId:{}, syntheticId:{}, accountId:{}", task.getId(), task.getSyntheticId(), cachedAccount.getId());
+                IboxApiResponse<IboxPageDataRes<SyntheticConfirmResultRes>> confirmResponse = iboxClient.post(cachedAccount.getBearerToken(), String.format(UrlConstant.SYNTHETIC_CONFIRM_URL, cachedAccount.getIboxUid()), context.getConfirmReq(), new TypeReference<>() {
+                });
+                log.info("【活动接口】confirm(缓存兜底) 调用结束, success:{}, taskId:{}, syntheticId:{}, accountId:{}", isSuccess(confirmResponse), task.getId(), task.getSyntheticId(), cachedAccount.getId());
                 if (isSuccess(confirmResponse)) {
                     List<Long> tokenIds = extractTokenIds(confirmResponse.getData() == null ? null : confirmResponse.getData().getList());
                     int successCount = (task.getSuccessCount() == null ? 0 : task.getSuccessCount()) + 1;
@@ -478,11 +460,12 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
             updateLastResult(task.getId(), "CENTER_FAIL", "获取合成中心详情失败");
             return;
         }
-        if (center.getSyntheticStatus() == null || center.getSyntheticStatus() != 1) {
-            saveRecord(task, account, null, center, "CENTER_CLOSED", "当前通道不可合成", false, null);
-            stopTask(task.getId(), "当前通道不可合成，自动停止");
-            return;
-        }
+        // 由于是预加载所以暂不校验
+//        if (center.getSyntheticStatus() == null || center.getSyntheticStatus() != 1) {
+//            saveRecord(task, account, null, center, "CENTER_CLOSED", "当前通道不可合成", false, null);
+//            stopTask(task.getId(), "当前通道不可合成，自动停止");
+//            return;
+//        }
         if (center.getEndTime() != null && LocalDateTime.now().isAfter(ofMillis(center.getEndTime()))) {
             saveRecord(task, account, null, center, "CENTER_ENDED", "活动已结束", false, null);
             stopTask(task.getId(), "活动已结束，自动停止");
@@ -501,17 +484,10 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         req.setSyntheticNum(1);
         req.setPreferentialAlbumIds(materialIds);
 
-        log.info("【活动接口】开始调用 confirm(实时兜底), taskId:{}, syntheticId:{}, accountId:{}",
-            task.getId(), task.getSyntheticId(), account.getId());
-        IboxApiResponse<IboxPageDataRes<SyntheticConfirmResultRes>> confirmResponse = iboxClient.post(
-            account.getBearerToken(),
-            String.format(UrlConstant.SYNTHETIC_CONFIRM_URL, account.getIboxUid()),
-            req,
-            new TypeReference<>() {
-            }
-        );
-        log.info("【活动接口】confirm(实时兜底) 调用结束, success:{}, taskId:{}, syntheticId:{}, accountId:{}",
-            isSuccess(confirmResponse), task.getId(), task.getSyntheticId(), account.getId());
+        log.info("【活动接口】开始调用 confirm(实时兜底), taskId:{}, syntheticId:{}, accountId:{}", task.getId(), task.getSyntheticId(), account.getId());
+        IboxApiResponse<IboxPageDataRes<SyntheticConfirmResultRes>> confirmResponse = iboxClient.post(account.getBearerToken(), String.format(UrlConstant.SYNTHETIC_CONFIRM_URL, account.getIboxUid()), req, new TypeReference<>() {
+        });
+        log.info("【活动接口】confirm(实时兜底) 调用结束, success:{}, taskId:{}, syntheticId:{}, accountId:{}", isSuccess(confirmResponse), task.getId(), task.getSyntheticId(), account.getId());
         if (!isSuccess(confirmResponse)) {
             String message = confirmResponse == null ? "合成接口未返回有效响应" : confirmResponse.getMessage();
             saveRecord(task, account, req, confirmResponse, "CONFIRM_FAIL", defaultMessage(message, "合成失败"), false, null);
@@ -552,8 +528,7 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
 
     private List<Long> resolveMaterialAlbumIds(SyntheticTaskEntity task, SyntheticCenterRes center) {
         List<Long> manualIds = parseLongValues(task.getMaterialAlbumIds());
-        if (MATERIAL_STRATEGY_MANUAL.equalsIgnoreCase(normalizeMaterialStrategy(task.getMaterialStrategy()))
-            && !CollectionUtils.isEmpty(manualIds)) {
+        if (MATERIAL_STRATEGY_MANUAL.equalsIgnoreCase(normalizeMaterialStrategy(task.getMaterialStrategy())) && !CollectionUtils.isEmpty(manualIds)) {
             return manualIds;
         }
         if (CollectionUtils.isEmpty(center.getBurnAlbums())) {
@@ -581,8 +556,7 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         return result;
     }
 
-    private void saveRecord(SyntheticTaskEntity task, IboxAccountEntity account, Object requestBody, Object responseBody,
-                            String resultCode, String resultMessage, boolean success, List<Long> tokenIds) {
+    private void saveRecord(SyntheticTaskEntity task, IboxAccountEntity account, Object requestBody, Object responseBody, String resultCode, String resultMessage, boolean success, List<Long> tokenIds) {
         SyntheticTaskRecordEntity record = new SyntheticTaskRecordEntity();
         record.setTaskId(task.getId());
         record.setAccountId(account == null ? null : account.getId());
@@ -597,9 +571,7 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         syntheticTaskRecordService.save(record);
     }
 
-    private void validateTask(String taskName, Long activityId, Long syntheticId, List<Long> accountIds,
-                              LocalDateTime executeStartTime, LocalDateTime executeEndTime,
-                              Integer maxSyntheticCount, Long intervalMillis) {
+    private void validateTask(String taskName, Long activityId, Long syntheticId, List<Long> accountIds, LocalDateTime executeStartTime, LocalDateTime executeEndTime, Integer maxSyntheticCount, Long intervalMillis) {
         if (!StringUtils.hasText(taskName)) {
             throw new IllegalArgumentException("任务名称不能为空");
         }
@@ -681,10 +653,10 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
      * <p>活动合成任务的预热和实时兜底都通过这里读取 center detail，
      * 只要任意阶段成功拿到过一次数据，就放入统一缓存，后续优先复用。</p>
      *
-     * @param account 当前任务账号
+     * @param account     当前任务账号
      * @param syntheticId 通道ID
-     * @param stageLabel 调用阶段标识，仅用于日志定位
-     * @param taskId 任务ID
+     * @param stageLabel  调用阶段标识，仅用于日志定位
+     * @param taskId      任务ID
      * @return center detail；未命中且接口失败时返回 null
      */
     private SyntheticCenterRes fetchAndCacheCenterDetail(IboxAccountEntity account, Long syntheticId, String stageLabel, Long taskId) {
@@ -695,23 +667,15 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         // 缓存按账号ID + 通道ID隔离，避免不同账号的资格和材料状态相互串用。
         SyntheticCenterRes cached = syntheticCenterCache.get(account.getId(), syntheticId);
         if (cached != null) {
-            log.info("【活动接口】命中 center detail 缓存, stage:{}, taskId:{}, syntheticId:{}, accountId:{}",
-                stageLabel, taskId, syntheticId, account.getId());
+            log.info("【活动接口】命中 center detail 缓存, stage:{}, taskId:{}, syntheticId:{}, accountId:{}", stageLabel, taskId, syntheticId, account.getId());
             return cached;
         }
 
         // 只有缓存未命中时才回源调用。
         // 成功结果立即入缓存；失败结果不写缓存，也不覆盖已有好缓存。
-        log.info("【活动接口】开始调用 center detail({}), taskId:{}, syntheticId:{}, accountId:{}",
-            stageLabel, taskId, syntheticId, account.getId());
-        IboxApiResponse<SyntheticCenterRes> centerResponse = iboxClient.get(
-            account.getBearerToken(),
-            String.format(UrlConstant.SYNTHETIC_CENTER_DETAIL_URL, syntheticId),
-            null,
-            SyntheticCenterRes.class
-        );
-        log.info("【活动接口】center detail({}) 调用结束, success:{}, taskId:{}, syntheticId:{}, accountId:{}",
-            stageLabel, isSuccess(centerResponse), taskId, syntheticId, account.getId());
+        log.info("【活动接口】开始调用 center detail({}), taskId:{}, syntheticId:{}, accountId:{}", stageLabel, taskId, syntheticId, account.getId());
+        IboxApiResponse<SyntheticCenterRes> centerResponse = iboxClient.get(account.getBearerToken(), String.format(UrlConstant.SYNTHETIC_CENTER_DETAIL_URL, syntheticId), null, SyntheticCenterRes.class);
+        log.info("【活动接口】center detail({}) 调用结束, success:{}, taskId:{}, syntheticId:{}, accountId:{}", stageLabel, isSuccess(centerResponse), taskId, syntheticId, account.getId());
         if (!isSuccess(centerResponse) || centerResponse.getData() == null) {
             return null;
         }
@@ -819,43 +783,28 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         if (CollectionUtils.isEmpty(accountIds)) {
             return Collections.emptyList();
         }
-        return accountIds.stream()
-            .map(this::getAccount)
-            .filter(Objects::nonNull)
-            .map(account -> StringUtils.hasText(account.getPhone())
-                ? account.getAccountName() + "(" + account.getPhone() + ")"
-                : account.getAccountName() + "(ID:" + account.getId() + ")")
-            .toList();
+        return accountIds.stream().map(this::getAccount).filter(Objects::nonNull).map(account -> StringUtils.hasText(account.getPhone()) ? account.getAccountName() + "(" + account.getPhone() + ")" : account.getAccountName() + "(ID:" + account.getId() + ")").toList();
     }
 
     private List<Long> parseLongValues(String values) {
         if (!StringUtils.hasText(values)) {
             return new ArrayList<>();
         }
-        return Arrays.stream(values.split(","))
-            .map(String::trim)
-            .filter(StringUtils::hasText)
-            .distinct()
-            .map(value -> {
-                try {
-                    return Long.valueOf(value);
-                } catch (NumberFormatException ex) {
-                    log.warn("【活动合成任务】解析数值失败，value:{}", value, ex);
-                    return null;
-                }
-            })
-            .filter(Objects::nonNull)
-            .toList();
+        return Arrays.stream(values.split(",")).map(String::trim).filter(StringUtils::hasText).distinct().map(value -> {
+            try {
+                return Long.valueOf(value);
+            } catch (NumberFormatException ex) {
+                log.warn("【活动合成任务】解析数值失败，value:{}", value, ex);
+                return null;
+            }
+        }).filter(Objects::nonNull).toList();
     }
 
     private String joinLongValues(List<Long> values) {
         if (CollectionUtils.isEmpty(values)) {
             return null;
         }
-        return values.stream()
-            .filter(Objects::nonNull)
-            .map(String::valueOf)
-            .collect(Collectors.collectingAndThen(Collectors.toCollection(LinkedHashSet::new), list -> String.join(",", list)));
+        return values.stream().filter(Objects::nonNull).map(String::valueOf).collect(Collectors.collectingAndThen(Collectors.toCollection(LinkedHashSet::new), list -> String.join(",", list)));
     }
 
     private String normalizeMaterialStrategy(String materialStrategy) {
@@ -891,21 +840,9 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
 
     private void sendSuccessFeishuMessage(SyntheticTaskEntity task, IboxAccountEntity account, int successCount, List<Long> tokenIds) {
         try {
-            String accountText = account == null
-                ? "-"
-                : (StringUtils.hasText(account.getPhone())
-                ? account.getAccountName() + "(" + account.getPhone() + ")"
-                : account.getAccountName() + "(ID:" + account.getId() + ")");
-            String tokenText = CollectionUtils.isEmpty(tokenIds)
-                ? "-"
-                : tokenIds.stream().map(String::valueOf).collect(Collectors.joining(","));
-            String message = "iBox活动合成成功"
-                + "，活动：" + defaultMessage(task.getActivityName(), "-")
-                + "，通道：" + defaultMessage(task.getChannelName(), "-")
-                + "，任务ID：" + task.getId()
-                + "，账号：" + accountText
-                + "，成功次数：" + successCount + "/" + (task.getMaxSyntheticCount() == null ? "-" : task.getMaxSyntheticCount())
-                + "，TokenIds：" + tokenText;
+            String accountText = account == null ? "-" : (StringUtils.hasText(account.getPhone()) ? account.getAccountName() + "(" + account.getPhone() + ")" : account.getAccountName() + "(ID:" + account.getId() + ")");
+            String tokenText = CollectionUtils.isEmpty(tokenIds) ? "-" : tokenIds.stream().map(String::valueOf).collect(Collectors.joining(","));
+            String message = "iBox活动合成成功" + "，活动：" + defaultMessage(task.getActivityName(), "-") + "，通道：" + defaultMessage(task.getChannelName(), "-") + "，任务ID：" + task.getId() + "，账号：" + accountText + "，成功次数：" + successCount + "/" + (task.getMaxSyntheticCount() == null ? "-" : task.getMaxSyntheticCount()) + "，TokenIds：" + tokenText;
             feishuMessageUtil.sendText(message);
         } catch (Exception ex) {
             log.warn("【活动合成任务】发送飞书通知失败，taskId:{}, accountId:{}", task.getId(), account == null ? null : account.getId(), ex);
