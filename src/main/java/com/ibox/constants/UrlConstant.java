@@ -76,6 +76,12 @@ public class UrlConstant {
     public static final String ORDERS_URL = SAIL_API_BASE_URL + "/order-service/orders?pageNo=%s&pageSize=%s&orderStatus=0&productType=0&orderType=0";
 
     /**
+     * 订单详情
+     * GET /order-service/orders/${orderId}
+     */
+    public static final String ORDERS_DETAIL_URL = SAIL_API_BASE_URL + "/order-service/orders/%s";
+
+    /**
      * 活动合成列表接口
      * GET https://sail-api.ibox.art/synthesis-service/synthetic/activity/list?pageNo={pageNo}&pageSize={pageSize}
      */

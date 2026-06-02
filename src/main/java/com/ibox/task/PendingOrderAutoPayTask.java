@@ -8,6 +8,7 @@ import com.ibox.constants.UrlConstant;
 import com.ibox.entity.IboxAccountEntity;
 import com.ibox.model.res.ibox.IboxApiResponse;
 import com.ibox.model.res.ibox.IboxPageDataRes;
+import com.ibox.model.res.ibox.OrderDetailFullRes;
 import com.ibox.model.res.ibox.OrderPaymentInfoRes;
 import com.ibox.model.res.ibox.OrderRes;
 import com.ibox.service.IboxAccountService;
@@ -19,6 +20,10 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Collections;
 import java.util.List;
 
@@ -36,6 +41,16 @@ public class PendingOrderAutoPayTask {
      * 当前先扫描首页，避免单轮请求过重。
      */
     private static final int PAGE_SIZE = 20;
+
+    /**
+     * 距离订单过期小于该秒数时，才允许自动付款。
+     */
+    private static final long AUTO_PAY_EXPIRE_THRESHOLD_SECONDS = 20L;
+
+    /**
+     * 订单详情时间字段格式。
+     */
+    private static final DateTimeFormatter ORDER_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final IboxAccountService iboxAccountService;
     private final IboxClient iboxClient;
@@ -176,8 +191,65 @@ public class PendingOrderAutoPayTask {
             return;
         }
 
-        // 当前支付调用先由你手动注释，保留入口和注释，后续恢复时只需要放开这一行。
+        // 只有订单临近过期时才自动支付，避免过早占用资金。
+        if (!shouldAutoPayNow(account, order)) {
+            return;
+        }
         payPendingOrder(account, order);
+    }
+
+    /**
+     * 查询订单详情，只有当订单剩余过期时间小于阈值时才允许自动支付。
+     *
+     * @param account iBox账号
+     * @param order 待支付订单
+     * @return true 表示可以立即自动支付
+     */
+    private boolean shouldAutoPayNow(IboxAccountEntity account, OrderRes order) {
+        try {
+            IboxApiResponse<OrderDetailFullRes> detailResponse = iboxClient.get(
+                account.getBearerToken(),
+                String.format(UrlConstant.ORDER_DETAIL_URL, order.getOrderUuid()),
+                null,
+                OrderDetailFullRes.class
+            );
+            if (detailResponse == null || detailResponse.getData() == null) {
+                log.warn("【待支付自动付款】获取订单详情失败，accountId:{}, orderUuid:{}, response:{}",
+                    account.getId(), safeOrderUuid(order), JSONObject.toJSONString(detailResponse));
+                return false;
+            }
+
+            String expiredAt = detailResponse.getData().getExpiredAt();
+            if (expiredAt == null || expiredAt.isBlank()) {
+                log.warn("【待支付自动付款】订单详情缺少过期时间，accountId:{}, orderUuid:{}",
+                    account.getId(), safeOrderUuid(order));
+                return false;
+            }
+
+            LocalDateTime expiredTime = LocalDateTime.parse(expiredAt, ORDER_TIME_FORMATTER);
+            long remainSeconds = Duration.between(LocalDateTime.now(), expiredTime).getSeconds();
+            if (remainSeconds < 0) {
+                log.info("【待支付自动付款】订单已过期，跳过支付，accountId:{}, orderUuid:{}, remainSeconds:{}",
+                    account.getId(), safeOrderUuid(order), remainSeconds);
+                return false;
+            }
+            if (remainSeconds >= AUTO_PAY_EXPIRE_THRESHOLD_SECONDS) {
+                log.info("【待支付自动付款】订单未到自动支付窗口，暂不支付，accountId:{}, orderUuid:{}, remainSeconds:{}",
+                    account.getId(), safeOrderUuid(order), remainSeconds);
+                return false;
+            }
+            log.info("【待支付自动付款】订单进入自动支付窗口，accountId:{}, orderUuid:{}, remainSeconds:{}",
+                account.getId(), safeOrderUuid(order), remainSeconds);
+            return true;
+        } catch (DateTimeParseException e) {
+            log.warn("【待支付自动付款】订单过期时间解析失败，accountId:{}, orderUuid:{}",
+                account.getId(), safeOrderUuid(order), e);
+            return false;
+        } catch (Exception e) {
+            log.warn("【待支付自动付款】查询订单详情异常，accountId:{}, orderUuid:{}",
+                account.getId(), safeOrderUuid(order), e);
+            return false;
+        }
     }
 
     /**
