@@ -37,6 +37,10 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -47,6 +51,8 @@ import java.util.regex.Pattern;
 @Slf4j
 @Service
 public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManager {
+
+    private final ExecutorService doublePurchaseExecutor = Executors.newFixedThreadPool(4);
 
     /**
      * 候选藏品允许下单的最小地板价。
@@ -190,13 +196,13 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
             purchaseCount = matched.getFloorPrice().compareTo(MIN_FLOOR_PRICE) <= 0 ? 6 : purchaseCount;
             BatchPurchaseConsignmentOrdersReq req = buildBatchPurchaseRequest(matched.getId(), purchaseCount, resolveMaxSinglePrice(matched.getFloorPrice(), priceLimit), paymentPlatformCode);
             log.info("【批量下单】购买参数={}", req);
-            new Thread(() -> {
+            doublePurchaseExecutor.submit(() -> {
                 try {
                     tryPurchaseCandidate(account, latest, matched, req, listCostMs, detailCostMs, parseCostMs, matchCostMs, startAt);
                 } catch (Exception e) {
                     log.error("【批量下单】下单成功通知失败", e);
                 }
-            }).start();
+            });
             if (tryPurchaseCandidate(account, latest, matched, req, listCostMs, detailCostMs, parseCostMs, matchCostMs, startAt)) {
                 return;
             }
