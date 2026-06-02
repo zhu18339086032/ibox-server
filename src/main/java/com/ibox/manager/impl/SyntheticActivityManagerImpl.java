@@ -2,6 +2,7 @@ package com.ibox.manager.impl;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.ibox.client.IboxClient;
+import com.ibox.common.SyntheticCenterCache;
 import com.ibox.constants.TokenConstant;
 import com.ibox.constants.UrlConstant;
 import com.ibox.entity.IboxAccountEntity;
@@ -56,6 +57,9 @@ public class SyntheticActivityManagerImpl implements SyntheticActivityManager {
 
     @Autowired
     private IboxAccountService iboxAccountService;
+
+    @Autowired
+    private SyntheticCenterCache syntheticCenterCache;
 
     @Override
     public PageResponse<SyntheticActivityListItemWebRes> list(SyntheticActivityPageReq req) {
@@ -177,20 +181,10 @@ public class SyntheticActivityManagerImpl implements SyntheticActivityManager {
             return res;
         }
 
-        log.info("【活动接口】开始调用 center detail(活动详情阶段), syntheticId:{}, accountId:{}", channel.getSyntheticActivityId(), account.getId());
-        IboxApiResponse<SyntheticCenterRes> centerResponse = iboxClient.get(
-            account.getBearerToken(),
-            String.format(UrlConstant.SYNTHETIC_CENTER_DETAIL_URL, channel.getSyntheticActivityId()),
-            null,
-            SyntheticCenterRes.class
-        );
-        log.info("【活动接口】center detail(活动详情阶段) 调用结束, success:{}, syntheticId:{}, accountId:{}",
-            isSuccess(centerResponse), channel.getSyntheticActivityId(), account.getId());
-        if (!isSuccess(centerResponse) || centerResponse.getData() == null) {
+        SyntheticCenterRes center = fetchAndCacheCenterDetail(account, channel.getSyntheticActivityId(), "活动详情阶段");
+        if (center == null) {
             return res;
         }
-
-        SyntheticCenterRes center = centerResponse.getData();
         res.setSyntheticStatus(center.getSyntheticStatus());
         res.setSupportAssistant(center.getSupportAssistant() != null && center.getSupportAssistant() == 1);
         res.setSupportBatchSynthetic(center.getSupportBatchSynthetic() != null && center.getSupportBatchSynthetic() == 1);
@@ -206,6 +200,47 @@ public class SyntheticActivityManagerImpl implements SyntheticActivityManager {
         res.setTargetAlbums(buildTargetAlbums(center.getTargetAlbums()));
         res.setSyntheticGroupNameList(buildGroupNames(center.getSyntheticGroupNameList()));
         return res;
+    }
+
+    /**
+     * 统一获取并缓存 center detail。
+     *
+     * <p>活动详情页查询、任务预热、运行时兜底都可能访问同一个通道详情，
+     * 这里统一先查缓存，再决定是否回源接口，避免重复请求。</p>
+     *
+     * @param account 当前账号
+     * @param syntheticId 通道ID
+     * @param stageLabel 调用阶段标识，仅用于日志定位
+     * @return center detail；未命中且接口失败时返回 null
+     */
+    private SyntheticCenterRes fetchAndCacheCenterDetail(IboxAccountEntity account, Long syntheticId, String stageLabel) {
+        if (account == null || account.getId() == null || syntheticId == null) {
+            return null;
+        }
+
+        // 同一个账号查看过一次通道详情后，后续任务创建或再次查看时都优先复用缓存。
+        SyntheticCenterRes cached = syntheticCenterCache.get(account.getId(), syntheticId);
+        if (cached != null) {
+            log.info("【活动接口】命中 center detail 缓存, stage:{}, syntheticId:{}, accountId:{}",
+                stageLabel, syntheticId, account.getId());
+            return cached;
+        }
+
+        // 缓存未命中时再回源调用，成功后立即写入缓存供后续复用。
+        log.info("【活动接口】开始调用 center detail({}), syntheticId:{}, accountId:{}", stageLabel, syntheticId, account.getId());
+        IboxApiResponse<SyntheticCenterRes> centerResponse = iboxClient.get(
+            account.getBearerToken(),
+            String.format(UrlConstant.SYNTHETIC_CENTER_DETAIL_URL, syntheticId),
+            null,
+            SyntheticCenterRes.class
+        );
+        log.info("【活动接口】center detail({}) 调用结束, success:{}, syntheticId:{}, accountId:{}",
+            stageLabel, isSuccess(centerResponse), syntheticId, account.getId());
+        if (!isSuccess(centerResponse) || centerResponse.getData() == null) {
+            return null;
+        }
+        syntheticCenterCache.put(account.getId(), syntheticId, centerResponse.getData());
+        return centerResponse.getData();
     }
 
     private List<SyntheticBurnAlbumGroupWebRes> buildBurnAlbums(List<SyntheticBurnAlbumGroupRes> groups) {

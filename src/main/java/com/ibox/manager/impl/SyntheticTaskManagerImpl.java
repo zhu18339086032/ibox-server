@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.ibox.client.IboxClient;
 import com.ibox.common.IboxAccountCache;
+import com.ibox.common.SyntheticCenterCache;
 import com.ibox.common.SyntheticTaskRuntimeManager;
 import com.ibox.constants.UrlConstant;
 import com.ibox.entity.IboxAccountEntity;
@@ -75,7 +76,6 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
     private static final String MATERIAL_STRATEGY_MANUAL = "MANUAL";
     private static final String MATERIAL_STRATEGY_AUTO_MATCH = "AUTO_MATCH";
     private static final long PREPARE_AHEAD_MILLIS = 30_000L;
-    private static final long PREPARED_CONTEXT_EXPIRE_MILLIS = 60_000L;
 
     private final ConcurrentHashMap<Long, PreparedExecutionContext> preparedContextMap = new ConcurrentHashMap<>();
 
@@ -99,6 +99,9 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
 
     @Autowired
     private FeishuMessageUtil feishuMessageUtil;
+
+    @Autowired
+    private SyntheticCenterCache syntheticCenterCache;
 
     @Override
     public PageResponse<SyntheticTaskRes> list(SyntheticTaskPageReq req) {
@@ -303,7 +306,7 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
 
     private void prepareExecutionContextIfNeeded(SyntheticTaskEntity task) {
         PreparedExecutionContext context = preparedContextMap.get(task.getId());
-        if (context != null && !context.isExpired()) {
+        if (context != null) {
             return;
         }
         PreparedExecutionContext prepared = prepareExecutionContext(task);
@@ -319,22 +322,14 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
             return null;
         }
 
-        log.info("【活动接口】开始调用 center detail(预热阶段), taskId:{}, syntheticId:{}, accountId:{}",
-            task.getId(), task.getSyntheticId(), account.getId());
-        IboxApiResponse<SyntheticCenterRes> centerResponse = iboxClient.get(
-            account.getBearerToken(),
-            String.format(UrlConstant.SYNTHETIC_CENTER_DETAIL_URL, task.getSyntheticId()),
-            null,
-            SyntheticCenterRes.class
-        );
-        log.info("【活动接口】center detail(预热阶段) 调用结束, success:{}, taskId:{}, syntheticId:{}, accountId:{}",
-            isSuccess(centerResponse), task.getId(), task.getSyntheticId(), account.getId());
-        if (!isSuccess(centerResponse) || centerResponse.getData() == null) {
+        // 预热阶段优先复用历史成功的 center detail 缓存。
+        // 只要创建任务、查看详情、或此前执行过程中任一阶段成功拿到过一次 center detail，
+        // 这里就尽量不再重复回源接口。
+        SyntheticCenterRes center = fetchAndCacheCenterDetail(account, task.getSyntheticId(), "预热阶段", task.getId());
+        if (center == null) {
             updateLastResult(task.getId(), "PREPARE_CENTER_FAIL", "预热阶段获取合成中心详情失败");
             return null;
         }
-
-        SyntheticCenterRes center = centerResponse.getData();
         if (center.getSyntheticStatus() == null || center.getSyntheticStatus() != 1) {
             updateLastResult(task.getId(), "PREPARE_CENTER_CLOSED", "预热阶段发现当前通道不可合成");
             return null;
@@ -361,7 +356,7 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
 
     private void firePreparedOrFallback(SyntheticTaskEntity task) {
         PreparedExecutionContext context = preparedContextMap.get(task.getId());
-        if (context == null || context.isExpired()) {
+        if (context == null) {
             executeOnceFallback(task);
             return;
         }
@@ -431,7 +426,6 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         PreparedExecutionContext context = preparedContextMap.get(task.getId());
         Long currentAccountId = extractSingleAccountId(task);
         if (context != null
-            && !context.isExpired()
             && currentAccountId != null
             && Objects.equals(currentAccountId, context.getAccountId())) {
             IboxAccountEntity cachedAccount = context.getAccount();
@@ -476,37 +470,28 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
             return;
         }
 
-        log.info("【活动接口】开始调用 center detail(实时兜底), taskId:{}, syntheticId:{}, accountId:{}",
-            task.getId(), task.getSyntheticId(), account.getId());
-        IboxApiResponse<SyntheticCenterRes> centerResponse = iboxClient.get(
-            account.getBearerToken(),
-            String.format(UrlConstant.SYNTHETIC_CENTER_DETAIL_URL, task.getSyntheticId()),
-            null,
-            SyntheticCenterRes.class
-        );
-        log.info("【活动接口】center detail(实时兜底) 调用结束, success:{}, taskId:{}, syntheticId:{}, accountId:{}",
-            isSuccess(centerResponse), task.getId(), task.getSyntheticId(), account.getId());
-        if (!isSuccess(centerResponse) || centerResponse.getData() == null) {
-            saveRecord(task, account, null, centerResponse, "CENTER_FAIL", "获取合成中心详情失败", false, null);
+        // 实时兜底同样先查统一缓存。
+        // 这样即使活动开始时 center detail 接口不稳定，只要之前成功缓存过一次，也仍有机会继续执行。
+        SyntheticCenterRes center = fetchAndCacheCenterDetail(account, task.getSyntheticId(), "实时兜底", task.getId());
+        if (center == null) {
+            saveRecord(task, account, null, null, "CENTER_FAIL", "获取合成中心详情失败", false, null);
             updateLastResult(task.getId(), "CENTER_FAIL", "获取合成中心详情失败");
             return;
         }
-
-        SyntheticCenterRes center = centerResponse.getData();
         if (center.getSyntheticStatus() == null || center.getSyntheticStatus() != 1) {
-            saveRecord(task, account, null, centerResponse, "CENTER_CLOSED", "当前通道不可合成", false, null);
+            saveRecord(task, account, null, center, "CENTER_CLOSED", "当前通道不可合成", false, null);
             stopTask(task.getId(), "当前通道不可合成，自动停止");
             return;
         }
         if (center.getEndTime() != null && LocalDateTime.now().isAfter(ofMillis(center.getEndTime()))) {
-            saveRecord(task, account, null, centerResponse, "CENTER_ENDED", "活动已结束", false, null);
+            saveRecord(task, account, null, center, "CENTER_ENDED", "活动已结束", false, null);
             stopTask(task.getId(), "活动已结束，自动停止");
             return;
         }
 
         List<Long> materialIds = resolveMaterialAlbumIds(task, center);
         if (CollectionUtils.isEmpty(materialIds)) {
-            saveRecord(task, account, null, centerResponse, "MATERIAL_EMPTY", "未匹配到可用材料", false, null);
+            saveRecord(task, account, null, center, "MATERIAL_EMPTY", "未匹配到可用材料", false, null);
             updateLastResult(task.getId(), "MATERIAL_EMPTY", "未匹配到可用材料");
             return;
         }
@@ -688,6 +673,50 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         if (prepared != null) {
             preparedContextMap.put(taskId, prepared);
         }
+    }
+
+    /**
+     * 统一获取并缓存 center detail。
+     *
+     * <p>活动合成任务的预热和实时兜底都通过这里读取 center detail，
+     * 只要任意阶段成功拿到过一次数据，就放入统一缓存，后续优先复用。</p>
+     *
+     * @param account 当前任务账号
+     * @param syntheticId 通道ID
+     * @param stageLabel 调用阶段标识，仅用于日志定位
+     * @param taskId 任务ID
+     * @return center detail；未命中且接口失败时返回 null
+     */
+    private SyntheticCenterRes fetchAndCacheCenterDetail(IboxAccountEntity account, Long syntheticId, String stageLabel, Long taskId) {
+        if (account == null || account.getId() == null || syntheticId == null) {
+            return null;
+        }
+
+        // 缓存按账号ID + 通道ID隔离，避免不同账号的资格和材料状态相互串用。
+        SyntheticCenterRes cached = syntheticCenterCache.get(account.getId(), syntheticId);
+        if (cached != null) {
+            log.info("【活动接口】命中 center detail 缓存, stage:{}, taskId:{}, syntheticId:{}, accountId:{}",
+                stageLabel, taskId, syntheticId, account.getId());
+            return cached;
+        }
+
+        // 只有缓存未命中时才回源调用。
+        // 成功结果立即入缓存；失败结果不写缓存，也不覆盖已有好缓存。
+        log.info("【活动接口】开始调用 center detail({}), taskId:{}, syntheticId:{}, accountId:{}",
+            stageLabel, taskId, syntheticId, account.getId());
+        IboxApiResponse<SyntheticCenterRes> centerResponse = iboxClient.get(
+            account.getBearerToken(),
+            String.format(UrlConstant.SYNTHETIC_CENTER_DETAIL_URL, syntheticId),
+            null,
+            SyntheticCenterRes.class
+        );
+        log.info("【活动接口】center detail({}) 调用结束, success:{}, taskId:{}, syntheticId:{}, accountId:{}",
+            stageLabel, isSuccess(centerResponse), taskId, syntheticId, account.getId());
+        if (!isSuccess(centerResponse) || centerResponse.getData() == null) {
+            return null;
+        }
+        syntheticCenterCache.put(account.getId(), syntheticId, centerResponse.getData());
+        return centerResponse.getData();
     }
 
     private void updateLastResult(Long taskId, String code, String message) {
@@ -897,9 +926,5 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
         private List<Long> materialIds;
         private SyntheticConfirmReq confirmReq;
         private long preparedAtMillis;
-
-        public boolean isExpired() {
-            return System.currentTimeMillis() - preparedAtMillis > PREPARED_CONTEXT_EXPIRE_MILLIS;
-        }
     }
 }
