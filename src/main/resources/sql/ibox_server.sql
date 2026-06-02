@@ -66,7 +66,7 @@ CREATE TABLE `ibox_purchase_task` (
     `task_name` VARCHAR(128) NOT NULL COMMENT '任务名称',
     `digital_collection_group_id` BIGINT NOT NULL COMMENT '商品ID',
     `collection_name` VARCHAR(128) DEFAULT NULL COMMENT '商品名称',
-    `account_id` BIGINT NOT NULL COMMENT '账号ID',
+    `account_ids` VARCHAR(512) NOT NULL COMMENT '账号ID列表，逗号分隔',
     `max_count` INT NOT NULL DEFAULT 1 COMMENT '最大购买数量',
     `max_single_price` DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '最大单价',
     `interval_millis` BIGINT NOT NULL DEFAULT 100 COMMENT '间隔频率（毫秒）',
@@ -138,7 +138,6 @@ CREATE TABLE `ibox_monitor_task_config` (
     `deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除标记，0-未删除，1-已删除',
     PRIMARY KEY (`id`),
     KEY `idx_monitor_task_config_type` (`monitor_type`),
-    KEY `idx_monitor_task_config_account_id` (`account_id`),
     KEY `idx_monitor_task_config_status` (`status`),
     KEY `idx_monitor_task_config_deleted` (`deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='监控任务配置表';

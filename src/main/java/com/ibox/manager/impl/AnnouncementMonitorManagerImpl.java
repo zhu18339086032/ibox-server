@@ -28,16 +28,19 @@ import com.ibox.utils.FeishuMessageUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -52,7 +55,11 @@ import java.util.regex.Pattern;
 @Service
 public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManager {
 
-    private final ExecutorService doublePurchaseExecutor = Executors.newFixedThreadPool(4);
+    /**
+     * 公告监控一期策略使用的并发线程池。
+     * 每个账号只发起 1 次下单，因此只需要承载账号级并发即可。
+     */
+    private final ExecutorService announcementPurchaseExecutor = Executors.newFixedThreadPool(8);
 
     /**
      * 候选藏品允许下单的最小地板价。
@@ -125,15 +132,19 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
 
     /**
      * 轮询最新公告，并在匹配成功时尝试下单。
+     * 一期策略：
+     * 1. 多账号参与；
+     * 2. 每个账号只打 1 次；
+     * 3. 每个账号覆盖 1 个不同商品；
+     * 4. 所有账号并发执行，不做补枪。
      */
     @Override
     public void monitorLatestAnnouncement(IboxMonitorTaskConfigEntity config) {
         long startAt = System.nanoTime();
-        IboxAccountEntity account = getAccount(config);
-        if (account.getBearerToken() == null || account.getBearerToken().isBlank()) {
-            throw new IllegalStateException("账号列表中不存在可用 token");
+        List<IboxAccountEntity> availableAccounts = getAvailableAccounts(config);
+        if (availableAccounts.isEmpty()) {
+            throw new IllegalStateException("监控任务未配置可用账号或账号 token 不可用");
         }
-        Integer paymentPlatformCode = resolvePaymentPlatformCode(account, config);
 
         ProxyInfo announcementListProxy = iboxProxyService.getNextConfigProxy();
         long listStartAt = System.nanoTime();
@@ -154,16 +165,19 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         if (latest.getId().equals(cachedLatestId)) {
             return;
         }
-        log.info("【公告列表】公告UUID:{},标题:{},分类:{}, listCostMs:{}", latest.getUuid(), latest.getTitle(), latest.getCategory().getName(), listCostMs);
+        log.info("【公告列表】公告UUID:{}, 标题:{}, 分类:{}, listCostMs:{}", latest.getUuid(), latest.getTitle(), latest.getCategory() == null ? null : latest.getCategory().getName(), listCostMs);
         announcementStateCache.setLatestAnnouncementId(latest.getId());
 
-        if (shouldSkipDetailFetch(latest.getCategory().getName(), latest.getTitle())) {
+        String categoryName = latest.getCategory() == null ? null : latest.getCategory().getName();
+        if (shouldSkipDetailFetch(categoryName, latest.getTitle())) {
             log.info("【公告监控】合成公告标题命中调整类关键词，跳过详情请求: {}", latest.getTitle());
             return;
         }
 
+        // 详情接口仍然先用首个账号视角拉取，一期不对“详情拉取账号”做更复杂拆分。
+        IboxAccountEntity detailAccount = availableAccounts.getFirst();
         long detailStartAt = System.nanoTime();
-        IboxApiResponse<AnnouncementRes> detailResponse = iboxClient.get(account.getBearerToken(), String.format(UrlConstant.ANNOUNCEMENT_DETAIL_URL, latest.getUuid()), null, AnnouncementRes.class);
+        IboxApiResponse<AnnouncementRes> detailResponse = iboxClient.get(detailAccount.getBearerToken(), String.format(UrlConstant.ANNOUNCEMENT_DETAIL_URL, latest.getUuid()), null, AnnouncementRes.class);
         long detailCostMs = elapsedMs(detailStartAt);
         if (detailResponse == null || detailResponse.getData() == null) {
             log.warn("【公告监控】公告详情为空, uuid:{}, listCostMs:{}, detailCostMs:{}", latest.getUuid(), listCostMs, detailCostMs);
@@ -172,15 +186,14 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
 
         AnnouncementRes detail = detailResponse.getData();
         long parseStartAt = System.nanoTime();
-        List<String> collectionNames = announcementContentParser.parseCollectionNames(latest.getTitle(), latest.getCategory().getName(), detail.getContent());
+        List<String> collectionNames = announcementContentParser.parseCollectionNames(latest.getTitle(), categoryName, detail.getContent());
         long parseCostMs = elapsedMs(parseStartAt);
-        if (collectionNames == null || collectionNames.isEmpty()) {
+        if (CollectionUtils.isEmpty(collectionNames)) {
             log.warn("【公告监控】公告未解析出可用藏品, 公告UUID:{}, listCostMs:{}, detailCostMs:{}, parseCostMs:{}", latest.getUuid(), listCostMs, detailCostMs, parseCostMs);
             return;
         }
 
         ensureMarketCacheLoaded();
-        int purchaseCount = resolvePurchaseCount(config);
         BigDecimal priceLimit = config != null ? config.getMaxPrice() : null;
 
         long matchStartAt = System.nanoTime();
@@ -191,24 +204,55 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
             return;
         }
 
-        for (MatchedMarketCollectionRes matched : candidates) {
-            log.info("【批量下单】开始尝试购买藏品:{}, ID:{}, 地板价:{}", matched.getName(), matched.getId(), matched.getFloorPrice());
-            purchaseCount = matched.getFloorPrice().compareTo(MIN_FLOOR_PRICE) <= 0 ? 6 : purchaseCount;
-            BatchPurchaseConsignmentOrdersReq req = buildBatchPurchaseRequest(matched.getId(), purchaseCount, resolveMaxSinglePrice(matched.getFloorPrice(), priceLimit), paymentPlatformCode);
-            log.info("【批量下单】购买参数={}", req);
-            doublePurchaseExecutor.submit(() -> {
-                try {
-                    tryPurchaseCandidate(account, latest, matched, req, listCostMs, detailCostMs, parseCostMs, matchCostMs, startAt);
-                } catch (Exception e) {
-                    log.error("【批量下单】下单成功通知失败", e);
+        List<AnnouncementPurchaseAssignment> assignments = buildAnnouncementAssignments(config, availableAccounts, candidates);
+        if (assignments.isEmpty()) {
+            log.warn("【公告监控】未生成可执行的账号商品分配, taskId:{}, accounts:{}, candidates:{}", config == null ? null : config.getId(), availableAccounts.size(), candidates.size());
+            return;
+        }
+
+        log.info("【公告监控】一期覆盖分配完成, taskId:{}, assignmentCount:{}, assignments:{}",
+            config == null ? null : config.getId(),
+            assignments.size(),
+            assignments.stream().map(item -> item.account().getId() + "->" + item.candidate().getName()).toList());
+
+        List<Future<Boolean>> futures = new ArrayList<>();
+        for (AnnouncementPurchaseAssignment assignment : assignments) {
+            futures.add(announcementPurchaseExecutor.submit(new Callable<>() {
+                @Override
+                public Boolean call() {
+                    return tryPurchaseCandidate(
+                        assignment.account(),
+                        latest,
+                        assignment.candidate(),
+                        assignment.request(),
+                        listCostMs,
+                        detailCostMs,
+                        parseCostMs,
+                        matchCostMs,
+                        startAt
+                    );
                 }
-            });
-            if (tryPurchaseCandidate(account, latest, matched, req, listCostMs, detailCostMs, parseCostMs, matchCostMs, startAt)) {
-                return;
+            }));
+        }
+
+        int successCount = 0;
+        for (Future<Boolean> future : futures) {
+            try {
+                if (Boolean.TRUE.equals(future.get())) {
+                    successCount++;
+                }
+            } catch (Exception e) {
+                log.error("【公告监控】账号并发下单任务执行异常", e);
             }
         }
 
-        log.warn("【公告监控耗时】所有候选下单失败, uuid:{}, listCostMs:{}, detailCostMs:{}, parseCostMs:{}, matchCostMs:{}, totalCostMs:{}, candidates:{}", latest.getUuid(), listCostMs, detailCostMs, parseCostMs, matchCostMs, elapsedMs(startAt), candidates.size());
+        if (successCount == 0) {
+            log.warn("【公告监控耗时】一期覆盖分配全部失败, uuid:{}, listCostMs:{}, detailCostMs:{}, parseCostMs:{}, matchCostMs:{}, totalCostMs:{}, assignments:{}",
+                latest.getUuid(), listCostMs, detailCostMs, parseCostMs, matchCostMs, elapsedMs(startAt), assignments.size());
+            return;
+        }
+        log.info("【公告监控耗时】一期覆盖分配执行完成, uuid:{}, successCount:{}, assignmentCount:{}, totalCostMs:{}",
+            latest.getUuid(), successCount, assignments.size(), elapsedMs(startAt));
     }
 
     /**
@@ -228,24 +272,27 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         long purchaseCostMs = elapsedMs(purchaseStartAt);
         if (isPurchaseSuccess(purchaseResponse)) {
             String orderUuid = extractOrderUuid(purchaseResponse);
-            log.info("【公告监控耗时】uuid:{}, listCostMs:{}, detailCostMs:{}, parseCostMs:{}, matchCostMs:{}, purchaseCostMs:{}, totalCostMs:{}, candidate:{}", latest.getUuid(), listCostMs, detailCostMs, parseCostMs, matchCostMs, purchaseCostMs, elapsedMs(startAt), matched.getName());
+            log.info("【公告监控耗时】uuid:{}, accountId:{}, listCostMs:{}, detailCostMs:{}, parseCostMs:{}, matchCostMs:{}, purchaseCostMs:{}, totalCostMs:{}, candidate:{}",
+                latest.getUuid(), account.getId(), listCostMs, detailCostMs, parseCostMs, matchCostMs, purchaseCostMs, elapsedMs(startAt), matched.getName());
             notifyOrderSuccess(account, latest, matched, orderUuid);
             return true;
         }
         if (purchaseResponse != null && purchaseResponse.getMessage() != null && purchaseResponse.getMessage().contains("未支付")) {
             feishuMessageUtil.sendText(account.getAccountName() + ":有待支付订单", account.getId() + "buy", 3);
         }
-        log.info("【批量下单】下单失败:{}, purchaseCostMs:{}, candidate:{}", JSONObject.toJSONString(purchaseResponse), purchaseCostMs, matched.getName());
+        log.info("【公告监控】下单失败, accountId:{}, candidate:{}, purchaseCostMs:{}, response:{}",
+            account.getId(), matched.getName(), purchaseCostMs, JSONObject.toJSONString(purchaseResponse));
         return false;
     }
 
     /**
      * 监控首页推荐位，新推荐位出现后尝试下单。
+     * 推荐位逻辑暂时仍保留单账号模式，本次一期改造只针对公告监控。
      */
     @Override
     public void monitorRecommendArea(IboxMonitorTaskConfigEntity config) {
         long startAt = System.nanoTime();
-        IboxAccountEntity account = getAccount(config);
+        IboxAccountEntity account = getPrimaryAccount(config);
         if (account.getBearerToken() == null || account.getBearerToken().isBlank()) {
             throw new IllegalStateException("账号列表中不存在可用 token");
         }
@@ -305,7 +352,8 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
                 MarketCollectionEntity entity = marketCollectionCache.getById(collectionGroupId);
                 BigDecimal maxSinglePrice = resolveRecommendAreaMaxSinglePrice(entity, priceLimit);
                 String candidateName = entity == null || entity.getName() == null || entity.getName().isBlank() ? String.valueOf(collectionGroupId) : entity.getName();
-                log.info("【推荐位监控】检测到新增推荐位, taskId:{}, areaId:{}, collectionId:{}, collectionName:{}, link:{}, listCostMs:{}", config.getId(), item.getId(), collectionGroupId, candidateName, link, listCostMs);
+                log.info("【推荐位监控】检测到新增推荐位, taskId:{}, areaId:{}, collectionId:{}, collectionName:{}, link:{}, listCostMs:{}",
+                    config.getId(), item.getId(), collectionGroupId, candidateName, link, listCostMs);
 
                 BatchPurchaseConsignmentOrdersReq req = buildBatchPurchaseRequest(collectionGroupId, purchaseCount, maxSinglePrice.intValue(), paymentPlatformCode);
                 long purchaseStartAt = System.nanoTime();
@@ -313,14 +361,15 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
                 long purchaseCostMs = elapsedMs(purchaseStartAt);
                 if (isPurchaseSuccess(purchaseResponse)) {
                     String orderUuid = extractOrderUuid(purchaseResponse);
-                    log.info("【推荐位监控耗时】taskId:{}, areaId:{}, collectionId:{}, purchaseCostMs:{}, totalCostMs:{}, result:success", config.getId(), item.getId(), collectionGroupId, purchaseCostMs, elapsedMs(startAt));
+                    log.info("【推荐位监控耗时】taskId:{}, areaId:{}, collectionId:{}, purchaseCostMs:{}, totalCostMs:{}, result:success",
+                        config.getId(), item.getId(), collectionGroupId, purchaseCostMs, elapsedMs(startAt));
                     notifyRecommendAreaPurchaseSuccess(account, item, entity, orderUuid);
                     continue;
                 }
-                log.info("【推荐位监控】购买失败, taskId:{}, areaId:{}, collectionId:{}, purchaseCostMs:{}, response:{}", config.getId(), item.getId(), collectionGroupId, purchaseCostMs, JSONObject.toJSONString(purchaseResponse));
+                log.info("【推荐位监控】购买失败, taskId:{}, areaId:{}, collectionId:{}, purchaseCostMs:{}, response:{}",
+                    config.getId(), item.getId(), collectionGroupId, purchaseCostMs, JSONObject.toJSONString(purchaseResponse));
             }
         } finally {
-            // 只有推荐位列表接口本次真正请求成功，才补 1 秒休眠；异常、超时、空响应都不休眠。
             if (requestSucceeded) {
                 sleepQuietly(1000L);
             }
@@ -413,7 +462,9 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
     }
 
     private Integer resolvePaymentPlatformCode(IboxAccountEntity account, IboxMonitorTaskConfigEntity config) {
-        return config != null && config.getPaymentPlatformCode() != null ? config.getPaymentPlatformCode() : (account.getDefaultPaymentPlatformCode() == null ? 30 : account.getDefaultPaymentPlatformCode());
+        return config != null && config.getPaymentPlatformCode() != null
+            ? config.getPaymentPlatformCode()
+            : (account.getDefaultPaymentPlatformCode() == null ? 30 : account.getDefaultPaymentPlatformCode());
     }
 
     private int resolvePurchaseCount(IboxMonitorTaskConfigEntity config) {
@@ -436,7 +487,11 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
     }
 
     private boolean isPurchaseSuccess(IboxApiResponse<Map<String, Object>> purchaseResponse) {
-        return purchaseResponse != null && purchaseResponse.getCode() != null && purchaseResponse.getCode() == 0;
+        return purchaseResponse != null
+            && purchaseResponse.getCode() != null
+            && purchaseResponse.getCode() == 0
+            && purchaseResponse.getData() != null
+            && purchaseResponse.getData().get("orderId") != null;
     }
 
     private String extractOrderUuid(IboxApiResponse<Map<String, Object>> purchaseResponse) {
@@ -447,7 +502,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
     }
 
     private Long extractMarketCollectionGroupId(String link) {
-        if (link == null || link.isBlank()) {
+        if (!StringUtils.hasText(link)) {
             return null;
         }
         Matcher matcher = MARKET_LINK_ID_PATTERN.matcher(link);
@@ -466,7 +521,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
      */
     private void notifyOrderSuccess(IboxAccountEntity account, AnnouncementRes latest, MatchedMarketCollectionRes matched, String orderUuid) {
         try {
-            if (orderUuid == null || orderUuid.isBlank()) {
+            if (!StringUtils.hasText(orderUuid)) {
                 feishuMessageUtil.sendText("iBox批量下单成功，来源：公告监控，公告标题：" + latest.getTitle() + "，藏品名称：" + matched.getName());
                 return;
             }
@@ -486,7 +541,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
     private void notifyRecommendAreaPurchaseSuccess(IboxAccountEntity account, HomeActivityAreaItemRes item, MarketCollectionEntity entity, String orderUuid) {
         String collectionName = entity == null || entity.getName() == null || entity.getName().isBlank() ? String.valueOf(item.getId()) : entity.getName();
         try {
-            if (orderUuid == null || orderUuid.isBlank()) {
+            if (!StringUtils.hasText(orderUuid)) {
                 feishuMessageUtil.sendText("iBox批量下单成功，来源：推荐位监控，推荐位ID：" + item.getId() + "，藏品名称：" + collectionName);
                 return;
             }
@@ -507,12 +562,18 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
      */
     private Map<String, Object> buildOrderSuccessCard(AnnouncementRes latest, MatchedMarketCollectionRes matched, OrderDetailRes detail) {
         String collectionName = matched.getName();
-        if (detail.getProductPreview() != null && detail.getProductPreview().getName() != null && !detail.getProductPreview().getName().isBlank()) {
+        if (detail.getProductPreview() != null && StringUtils.hasText(detail.getProductPreview().getName())) {
             collectionName = detail.getProductPreview().getName();
         }
 
         StringBuilder content = new StringBuilder();
-        content.append("**来源：** 公告监控").append("\n**公告标题：** ").append(safeText(latest.getTitle())).append("\n**藏品名称：** ").append(safeText(collectionName)).append("\n**订单数量：** ").append(detail.getQuantity() == null ? "-" : detail.getQuantity()).append("\n**订单总价：** ").append(formatPrice(detail.getPrice())).append("\n**下单时间：** ").append(safeText(detail.getCreatedAt())).append("\n**订单ID：** ").append(safeText(detail.getOrderUuid()));
+        content.append("**来源：** 公告监控")
+            .append("\n**公告标题：** ").append(safeText(latest.getTitle()))
+            .append("\n**藏品名称：** ").append(safeText(collectionName))
+            .append("\n**订单数量：** ").append(detail.getQuantity() == null ? "-" : detail.getQuantity())
+            .append("\n**订单总价：** ").append(formatPrice(detail.getPrice()))
+            .append("\n**下单时间：** ").append(safeText(detail.getCreatedAt()))
+            .append("\n**订单ID：** ").append(safeText(detail.getOrderUuid()));
 
         if (detail.getProducts() != null && !detail.getProducts().isEmpty()) {
             for (OrderDetailRes.ProductItem product : detail.getProducts()) {
@@ -575,9 +636,34 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         marketCollectionCache.refresh(list);
     }
 
-    /**
-     * 从缓存中获取默认账号。
-     */
+    private List<AnnouncementPurchaseAssignment> buildAnnouncementAssignments(IboxMonitorTaskConfigEntity config,
+                                                                              List<IboxAccountEntity> accounts,
+                                                                              List<MatchedMarketCollectionRes> candidates) {
+        if (CollectionUtils.isEmpty(accounts) || CollectionUtils.isEmpty(candidates)) {
+            return List.of();
+        }
+        int assignmentCount = Math.min(accounts.size(), candidates.size());
+        List<AnnouncementPurchaseAssignment> assignments = new ArrayList<>(assignmentCount);
+        for (int index = 0; index < assignmentCount; index++) {
+            IboxAccountEntity account = accounts.get(index);
+            MatchedMarketCollectionRes candidate = candidates.get(index);
+            int purchaseCount = candidate.getFloorPrice() != null && candidate.getFloorPrice().compareTo(MIN_FLOOR_PRICE) <= 0
+                ? 6
+                : resolvePurchaseCount(config);
+            Integer paymentPlatformCode = resolvePaymentPlatformCode(account, config);
+            BatchPurchaseConsignmentOrdersReq request = buildBatchPurchaseRequest(
+                candidate.getId(),
+                purchaseCount,
+                resolveMaxSinglePrice(candidate.getFloorPrice(), config == null ? null : config.getMaxPrice()),
+                paymentPlatformCode
+            );
+            assignments.add(new AnnouncementPurchaseAssignment(account, candidate, request));
+            log.info("【公告监控】准备分配账号下单, taskId:{}, accountId:{}, candidate:{}, candidateId:{}, requestMaxCount:{}, requestMaxSinglePrice:{}",
+                config == null ? null : config.getId(), account.getId(), candidate.getName(), candidate.getId(), request.getMaxCount(), request.getMaxSinglePrice());
+        }
+        return assignments;
+    }
+
     private IboxAccountEntity getDefaultAccount() {
         IboxAccountEntity cached = iboxAccountCache.getDefaultAccount();
         if (cached != null) {
@@ -586,22 +672,76 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         throw new IllegalStateException("默认账号缓存不存在，请检查启动预热任务是否执行成功");
     }
 
-    /**
-     * 解析任务配置中的账号，找不到时回退到默认账号。
-     */
-    private IboxAccountEntity getAccount(IboxMonitorTaskConfigEntity config) {
-        if (config != null && config.getAccountId() != null) {
-            IboxAccountEntity account = iboxAccountCache.getById(config.getAccountId());
-            if (account != null) {
-                return account;
-            }
-            account = iboxAccountService.getById(config.getAccountId());
-            if (account == null) {
-                throw new IllegalStateException("监控任务绑定账号不存在");
-            }
-            iboxAccountCache.put(account);
-            return account;
+    private IboxAccountEntity getPrimaryAccount(IboxMonitorTaskConfigEntity config) {
+        List<IboxAccountEntity> accounts = getAvailableAccounts(config);
+        if (!accounts.isEmpty()) {
+            return accounts.getFirst();
         }
         return getDefaultAccount();
+    }
+
+    /**
+     * 公告监控一期使用多账号配置。
+     * 这里会过滤掉不存在账号和 token 为空的账号，避免并发阶段再做大量空判断。
+     */
+    private List<IboxAccountEntity> getAvailableAccounts(IboxMonitorTaskConfigEntity config) {
+        List<Long> accountIds = parseAccountIds(config == null ? null : config.getAccountIds());
+        if (accountIds.isEmpty()) {
+            IboxAccountEntity defaultAccount = getDefaultAccount();
+            return StringUtils.hasText(defaultAccount.getBearerToken()) ? List.of(defaultAccount) : List.of();
+        }
+        List<IboxAccountEntity> accounts = new ArrayList<>();
+        for (Long accountId : accountIds) {
+            IboxAccountEntity account = getAccountById(accountId);
+            if (account == null) {
+                log.warn("【公告监控】监控任务绑定账号不存在, taskId:{}, accountId:{}", config == null ? null : config.getId(), accountId);
+                continue;
+            }
+            if (!StringUtils.hasText(account.getBearerToken())) {
+                log.warn("【公告监控】监控任务绑定账号 token 为空，跳过, taskId:{}, accountId:{}", config == null ? null : config.getId(), accountId);
+                continue;
+            }
+            accounts.add(account);
+        }
+        return accounts;
+    }
+
+    private IboxAccountEntity getAccountById(Long accountId) {
+        if (accountId == null) {
+            return null;
+        }
+        IboxAccountEntity account = iboxAccountCache.getById(accountId);
+        if (account != null) {
+            return account;
+        }
+        account = iboxAccountService.getById(accountId);
+        if (account != null) {
+            iboxAccountCache.put(account);
+        }
+        return account;
+    }
+
+    private List<Long> parseAccountIds(String accountIds) {
+        if (!StringUtils.hasText(accountIds)) {
+            return List.of();
+        }
+        return Arrays.stream(accountIds.split(","))
+            .map(String::trim)
+            .filter(StringUtils::hasText)
+            .distinct()
+            .map(value -> {
+                try {
+                    return Long.parseLong(value);
+                } catch (NumberFormatException ignored) {
+                    return null;
+                }
+            })
+            .filter(Objects::nonNull)
+            .toList();
+    }
+
+    private record AnnouncementPurchaseAssignment(IboxAccountEntity account,
+                                                  MatchedMarketCollectionRes candidate,
+                                                  BatchPurchaseConsignmentOrdersReq request) {
     }
 }

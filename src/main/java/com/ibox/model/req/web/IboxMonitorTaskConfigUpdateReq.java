@@ -3,55 +3,56 @@ package com.ibox.model.req.web;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
- * 监控任务配置修改请求
+ * 监控任务配置修改请求。
  */
 @Data
 public class IboxMonitorTaskConfigUpdateReq {
 
     /**
-     * 主键ID
+     * 主键ID。
      */
     private Long id;
 
     /**
-     * 任务名称
+     * 任务名称。
      */
     private String taskName;
 
     /**
-     * 监控类型
+     * 监控类型。
      */
     private String monitorType;
 
     /**
-     * 账号ID
+     * 账号ID列表。
      */
-    private Long accountId;
+    private List<Long> accountIds;
 
     /**
-     * 最大数量
+     * 最大次数。
      */
     private Integer maxCount;
 
     /**
-     * 最大价格
+     * 最大价格。
      */
     private BigDecimal maxPrice;
 
     /**
-     * 状态
+     * 状态。
      */
     private Integer status;
 
     /**
-     * 支付平台编码
+     * 支付平台编码。
      */
     private Integer paymentPlatformCode;
 
     /**
-     * 备注
+     * 备注。
      */
     private String remark;
 }

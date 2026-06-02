@@ -4,70 +4,76 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
- * 监控任务配置响应
+ * 监控任务配置响应。
  */
 @Data
 public class IboxMonitorTaskConfigRes {
 
     /**
-     * 主键ID
+     * 主键ID。
      */
     private Long id;
 
     /**
-     * 任务名称
+     * 任务名称。
      */
     private String taskName;
 
     /**
-     * 监控类型
+     * 监控类型。
      */
     private String monitorType;
 
     /**
-     * 账号ID
+     * 账号ID列表。
      */
-    private Long accountId;
+    private List<Long> accountIds;
 
     /**
-     * 最大数量
+     * 账号展示名称列表。
+     */
+    private List<String> accountNames;
+
+    /**
+     * 最大次数。
      */
     private Integer maxCount;
 
     /**
-     * 最大价格
+     * 最大价格。
      */
     private BigDecimal maxPrice;
 
     /**
-     * 状态
+     * 状态。
      */
     private Integer status;
 
     /**
-     * 是否运行中，0-否，1-是
+     * 是否运行中，0-否，1-是。
      */
     private Integer running;
 
     /**
-     * 支付平台编码
+     * 支付平台编码。
      */
     private Integer paymentPlatformCode;
 
     /**
-     * 备注
+     * 备注。
      */
     private String remark;
 
     /**
-     * 创建时间
+     * 创建时间。
      */
     private LocalDateTime createdAt;
 
     /**
-     * 更新时间
+     * 更新时间。
      */
     private LocalDateTime updatedAt;
 }

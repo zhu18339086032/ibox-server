@@ -3,7 +3,9 @@ package com.ibox.manager.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.ibox.common.IboxAccountCache;
 import com.ibox.common.MonitorTaskRuntimeManager;
+import com.ibox.entity.IboxAccountEntity;
 import com.ibox.entity.IboxMonitorTaskConfigEntity;
 import com.ibox.manager.AnnouncementMonitorManager;
 import com.ibox.manager.IboxMonitorTaskConfigManager;
@@ -13,14 +15,20 @@ import com.ibox.model.req.web.IboxMonitorTaskConfigUpdateReq;
 import com.ibox.model.res.web.IboxMonitorTaskConfigRes;
 import com.ibox.model.res.web.MonitorTaskExecuteRes;
 import com.ibox.model.res.web.PageResponse;
+import com.ibox.service.IboxAccountService;
 import com.ibox.service.IboxMonitorTaskConfigService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Service
 public class IboxMonitorTaskConfigManagerImpl implements IboxMonitorTaskConfigManager {
@@ -34,12 +42,18 @@ public class IboxMonitorTaskConfigManagerImpl implements IboxMonitorTaskConfigMa
     @Autowired
     private MonitorTaskRuntimeManager monitorTaskRuntimeManager;
 
+    @Autowired
+    private IboxAccountService iboxAccountService;
+
+    @Autowired
+    private IboxAccountCache iboxAccountCache;
+
     @Override
     public PageResponse<IboxMonitorTaskConfigRes> list(IboxMonitorTaskConfigPageReq req) {
         LambdaQueryWrapper<IboxMonitorTaskConfigEntity> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.like(StringUtils.hasText(req.getTaskName()), IboxMonitorTaskConfigEntity::getTaskName, req.getTaskName());
         queryWrapper.eq(StringUtils.hasText(req.getMonitorType()), IboxMonitorTaskConfigEntity::getMonitorType, req.getMonitorType());
-        queryWrapper.eq(req.getAccountId() != null, IboxMonitorTaskConfigEntity::getAccountId, req.getAccountId());
+        queryWrapper.apply(req.getAccountId() != null, "FIND_IN_SET({0}, account_ids)", req.getAccountId());
         queryWrapper.eq(req.getStatus() != null, IboxMonitorTaskConfigEntity::getStatus, req.getStatus());
         queryWrapper.orderByDesc(IboxMonitorTaskConfigEntity::getId);
         IPage<IboxMonitorTaskConfigEntity> page = iboxMonitorTaskConfigService.page(new Page<>(req.getPageNum(), req.getPageSize()), queryWrapper);
@@ -50,23 +64,22 @@ public class IboxMonitorTaskConfigManagerImpl implements IboxMonitorTaskConfigMa
     @Override
     public IboxMonitorTaskConfigRes getById(Long id) {
         IboxMonitorTaskConfigEntity entity = iboxMonitorTaskConfigService.getById(id);
-        if (entity == null) {
-            return null;
-        }
-        return buildRes(entity);
+        return entity == null ? null : buildRes(entity);
     }
 
     @Override
     public boolean save(IboxMonitorTaskConfigSaveReq req) {
         IboxMonitorTaskConfigEntity entity = new IboxMonitorTaskConfigEntity();
-        BeanUtils.copyProperties(req, entity);
+        BeanUtils.copyProperties(req, entity, "accountIds");
+        entity.setAccountIds(joinAccountIds(req.getAccountIds()));
         return iboxMonitorTaskConfigService.save(entity);
     }
 
     @Override
     public boolean updateById(IboxMonitorTaskConfigUpdateReq req) {
         IboxMonitorTaskConfigEntity entity = new IboxMonitorTaskConfigEntity();
-        BeanUtils.copyProperties(req, entity);
+        BeanUtils.copyProperties(req, entity, "accountIds");
+        entity.setAccountIds(joinAccountIds(req.getAccountIds()));
         return iboxMonitorTaskConfigService.updateById(entity);
     }
 
@@ -147,7 +160,10 @@ public class IboxMonitorTaskConfigManagerImpl implements IboxMonitorTaskConfigMa
 
     private IboxMonitorTaskConfigRes buildRes(IboxMonitorTaskConfigEntity entity) {
         IboxMonitorTaskConfigRes res = new IboxMonitorTaskConfigRes();
-        BeanUtils.copyProperties(entity, res);
+        BeanUtils.copyProperties(entity, res, "accountIds");
+        List<Long> accountIds = parseAccountIds(entity.getAccountIds());
+        res.setAccountIds(accountIds);
+        res.setAccountNames(buildAccountNames(accountIds));
         res.setRunning(monitorTaskRuntimeManager.isRunning(entity.getId()) ? 1 : 0);
         return res;
     }
@@ -162,5 +178,59 @@ public class IboxMonitorTaskConfigManagerImpl implements IboxMonitorTaskConfigMa
             return;
         }
         throw new IllegalStateException("暂不支持的监控类型: " + entity.getMonitorType());
+    }
+
+    private String joinAccountIds(List<Long> accountIds) {
+        if (CollectionUtils.isEmpty(accountIds)) {
+            return null;
+        }
+        return accountIds.stream()
+            .filter(Objects::nonNull)
+            .map(String::valueOf)
+            .collect(Collectors.collectingAndThen(Collectors.toCollection(LinkedHashSet::new), values -> String.join(",", values)));
+    }
+
+    private List<Long> parseAccountIds(String accountIds) {
+        if (!StringUtils.hasText(accountIds)) {
+            return List.of();
+        }
+        return Arrays.stream(accountIds.split(","))
+            .map(String::trim)
+            .filter(StringUtils::hasText)
+            .distinct()
+            .map(value -> {
+                try {
+                    return Long.parseLong(value);
+                } catch (NumberFormatException ignored) {
+                    return null;
+                }
+            })
+            .filter(Objects::nonNull)
+            .toList();
+    }
+
+    private List<String> buildAccountNames(List<Long> accountIds) {
+        if (CollectionUtils.isEmpty(accountIds)) {
+            return List.of();
+        }
+        return accountIds.stream()
+            .map(this::getAccount)
+            .filter(Objects::nonNull)
+            .map(account -> StringUtils.hasText(account.getPhone())
+                ? account.getAccountName() + "(" + account.getPhone() + ")"
+                : account.getAccountName() + "(ID:" + account.getId() + ")")
+            .toList();
+    }
+
+    private IboxAccountEntity getAccount(Long accountId) {
+        IboxAccountEntity account = iboxAccountCache.getById(accountId);
+        if (account != null) {
+            return account;
+        }
+        account = iboxAccountService.getById(accountId);
+        if (account != null) {
+            iboxAccountCache.put(account);
+        }
+        return account;
     }
 }
