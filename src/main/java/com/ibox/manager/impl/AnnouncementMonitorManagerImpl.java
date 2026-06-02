@@ -189,6 +189,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
             log.info("【批量下单】开始尝试购买藏品:{}, ID:{}, 地板价:{}", matched.getName(), matched.getId(), matched.getFloorPrice());
             purchaseCount = matched.getFloorPrice().compareTo(MIN_FLOOR_PRICE) <= 0 ? 6 : purchaseCount;
             BatchPurchaseConsignmentOrdersReq req = buildBatchPurchaseRequest(matched.getId(), purchaseCount, resolveMaxSinglePrice(matched.getFloorPrice(), priceLimit), paymentPlatformCode);
+            log.info("【批量下单】购买参数={}", req);
             new Thread(() -> {
                 try {
                     tryPurchaseCandidate(account, latest, matched, req, listCostMs, detailCostMs, parseCostMs, matchCostMs, startAt);
@@ -368,8 +369,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
             candidates.add(matched);
             log.info("【公告监控】匹配到藏品:{}, ID:{}, 地板价:{}", entity.getName(), entity.getId(), entity.getFloorPrice());
         }
-        candidates.sort(Comparator.comparing(MatchedMarketCollectionRes::getFloorPrice));
-        log.info("【公告监控】候选尝试顺序:{}", candidates.stream().map(item -> item.getName() + "(" + formatPrice(item.getFloorPrice()) + ")").toList());
+        log.info("【公告监控】候选尝试顺序（按公告解析顺序）:{}", candidates.stream().map(item -> item.getName() + "(" + formatPrice(item.getFloorPrice()) + ")").toList());
         return candidates;
     }
 
