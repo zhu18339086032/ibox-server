@@ -128,8 +128,15 @@ public class PendingOrderAutoPayTask {
             return;
         }
         OrderRes firstOrderRes = orders.getFirst();
+        String noticeMessage = "iBox待支付订单提醒，账号ID：" + account.getId()
+            + "，账号名称：" + safeText(account.getAccountName())
+            + "，待支付订单数：" + orders.size()
+            + "，首单订单ID：" + safeOrderUuid(firstOrderRes)
+            + "，首单藏品：" + safeOrderName(firstOrderRes)
+            + "，首单价格：" + safePrice(firstOrderRes.getPrice());
+        feishuMessageUtil.sendText(noticeMessage, "wait_pay:" + account.getId(), 4);
         log.info("【待支付自动付款】获取首个订单，【{}】【{}】", firstOrderRes.getProductPreview().getName(), firstOrderRes.getProductPreview());
-        processOrder(account, firstOrderRes);
+//        processOrder(account, firstOrderRes);
     }
 
     /**
@@ -319,6 +326,19 @@ public class PendingOrderAutoPayTask {
      */
     private String safePrice(BigDecimal value) {
         return value == null ? "-" : value.stripTrailingZeros().toPlainString();
+    }
+
+    /**
+     * 安全获取订单预览名称，避免通知中出现空指针。
+     *
+     * @param order 待支付订单
+     * @return 藏品名称；缺失时返回 "-"
+     */
+    private String safeOrderName(OrderRes order) {
+        if (order == null || order.getProductPreview() == null || order.getProductPreview().getName() == null || order.getProductPreview().getName().isBlank()) {
+            return "-";
+        }
+        return order.getProductPreview().getName();
     }
 
     /**

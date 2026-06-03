@@ -269,6 +269,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
                                          long startAt) {
         long purchaseStartAt = System.nanoTime();
         IboxApiResponse<Map<String, Object>> purchaseResponse = submitBatchPurchase(account, req);
+        log.info("【公告监控耗时】,发起请求.......req={}", req);
         long purchaseCostMs = elapsedMs(purchaseStartAt);
         if (isPurchaseSuccess(purchaseResponse)) {
             String orderUuid = extractOrderUuid(purchaseResponse);
