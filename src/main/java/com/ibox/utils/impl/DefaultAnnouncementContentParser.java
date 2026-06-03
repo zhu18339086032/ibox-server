@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 
@@ -33,6 +34,9 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
      */
     @Override
     public List<String> parseCollectionNames(String title, String category, String content) {
+        if (title.contains("空投公示")){
+            return new LinkedList<>();
+        }
         if (category != null && category.contains("寄售公告")) {
             LinkedHashSet<String> names = new LinkedHashSet<>();
             extractCollectionNamesToSet(title, names, null);

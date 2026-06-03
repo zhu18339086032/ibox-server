@@ -273,6 +273,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
                                          long startAt) {
         long purchaseStartAt = System.nanoTime();
         IboxApiResponse<Map<String, Object>> purchaseResponse = submitBatchPurchase(account, req);
+        log.info("【公告监控耗时】,发起请求.......req={}", req);
         long purchaseCostMs = elapsedMs(purchaseStartAt);
         if (isPurchaseSuccess(purchaseResponse)) {
             String orderUuid = extractOrderUuid(purchaseResponse);
@@ -680,11 +681,11 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         if (CollectionUtils.isEmpty(accounts) || CollectionUtils.isEmpty(candidates)) {
             return List.of();
         }
-        int assignmentCount = Math.min(accounts.size(), candidates.size());
+        int assignmentCount = accounts.size();
         List<AnnouncementPurchaseAssignment> assignments = new ArrayList<>(assignmentCount);
         for (int index = 0; index < assignmentCount; index++) {
             IboxAccountEntity account = accounts.get(index);
-            MatchedMarketCollectionRes candidate = candidates.get(index);
+            MatchedMarketCollectionRes candidate = candidates.get(index % candidates.size());
             int purchaseCount = candidate.getFloorPrice() != null && candidate.getFloorPrice().compareTo(MIN_FLOOR_PRICE) <= 0
                 ? 6
                 : resolvePurchaseCount(config);
