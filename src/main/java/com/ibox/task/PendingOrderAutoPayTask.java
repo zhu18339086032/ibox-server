@@ -79,7 +79,7 @@ public class PendingOrderAutoPayTask {
      * 定时扫描全部账号的待支付订单。
      * 命中购买任务映射且价格校验通过时，进入自动付款入口。
      */
-    @Scheduled(fixedDelay = 5000L, initialDelay = 5000L)
+//    @Scheduled(fixedDelay = 5000L, initialDelay = 5000L)
     public void scanPendingOrders() {
         // 先做配置级兜底，避免任务启动后因为配置缺失一直打异常日志。
         if (!autoPayEnabled) {

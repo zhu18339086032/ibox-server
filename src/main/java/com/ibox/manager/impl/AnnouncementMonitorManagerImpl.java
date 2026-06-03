@@ -3,6 +3,7 @@ package com.ibox.manager.impl;
 import com.alibaba.fastjson.JSONObject;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.ibox.client.IboxClient;
+import com.ibox.common.AccountRequestContextManager;
 import com.ibox.common.AnnouncementStateCache;
 import com.ibox.common.IboxAccountCache;
 import com.ibox.common.MarketCollectionCache;
@@ -129,6 +130,9 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
      */
     @Autowired
     private FeishuMessageUtil feishuMessageUtil;
+
+    @Autowired
+    private AccountRequestContextManager accountRequestContextManager;
 
     /**
      * 轮询最新公告，并在匹配成功时尝试下单。
@@ -497,7 +501,11 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
      * 调用 iBox 批量购买接口提交下单请求。
      */
     private IboxApiResponse<Map<String, Object>> submitBatchPurchase(IboxAccountEntity account, BatchPurchaseConsignmentOrdersReq req) {
-        return iboxClient.post(account.getBearerToken(), String.format(UrlConstant.BATCH_PURCHASE_CONSIGNMENT_ORDER_URL, account.getIboxUid()), req, new TypeReference<>() {
+        AccountRequestContextManager.AccountRequestContext context = accountRequestContextManager.getOrCreate(account);
+        if (context == null) {
+            return null;
+        }
+        return iboxClient.post(context.bearerToken(), context.batchPurchaseUrl(), req, new TypeReference<>() {
         });
     }
 

@@ -56,14 +56,20 @@ public abstract class AbstractIboxClient implements IboxClient {
     private static final int REQUEST_TIMEOUT_MILLIS = 150;
 
     /**
-     * Default direct RestTemplate.
+     * Default direct RestTemplate backed by a reusable pooled HTTP client.
      */
-    public static final RestTemplate restTemplate = new RestTemplate();
+    public static final RestTemplate restTemplate = createDirectRestTemplate();
 
     /**
      * Shared JSON mapper.
      */
     public static final ObjectMapper objectMapper = new ObjectMapper();
+
+    /**
+     * Shared immutable-like header template for iBox requests.
+     * Dynamic headers such as Authorization and X-Request-Id are applied per request on top of this template.
+     */
+    private static final HttpHeaders BASE_HEADERS_TEMPLATE = createBaseHeadersTemplate();
 
     /**
      * Cached RestTemplate instances keyed by proxy settings.
@@ -185,18 +191,7 @@ public abstract class AbstractIboxClient implements IboxClient {
      */
     protected HttpHeaders buildHeaders(String token) {
         HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
-        headers.setAcceptLanguageAsLocales(List.of(java.util.Locale.SIMPLIFIED_CHINESE, java.util.Locale.CHINA));
-        headers.set(HttpHeaders.ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9");
-        headers.set(HttpHeaders.CACHE_CONTROL, "no-cache");
-        headers.set(HttpHeaders.PRAGMA, "no-cache");
-        headers.set(HttpHeaders.CONNECTION, "keep-alive");
-        headers.set(HttpHeaders.ACCEPT_ENCODING, "gzip, deflate, br");
-        headers.set(HttpHeaders.USER_AGENT, "Mozilla/5.0 (Linux; Android 12; M2012K11AC Build/SKQ1.211006.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.0.0 Mobile Safari/537.36 iBox/1.0");
-        headers.set("Origin", "https://www.ibox.art");
-        headers.set("Referer", "https://www.ibox.art/");
-        headers.set("X-Requested-With", "com.ibox.app");
+        headers.putAll(BASE_HEADERS_TEMPLATE);
         headers.set("X-Request-Id", UUID.randomUUID().toString().replace("-", ""));
         if (token != null && !token.isBlank()) {
             headers.setBearerAuth(token.replaceFirst("^Bearer\\s+", ""));
@@ -326,5 +321,49 @@ public abstract class AbstractIboxClient implements IboxClient {
         HttpComponentsClientHttpRequestFactory requestFactory = new HttpComponentsClientHttpRequestFactory(httpClient);
         requestFactory.setReadTimeout(REQUEST_TIMEOUT_MILLIS);
         return new RestTemplate(requestFactory);
+    }
+
+    /**
+     * Creates the default direct RestTemplate with connection pooling enabled.
+     */
+    private static RestTemplate createDirectRestTemplate() {
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectTimeout(Timeout.ofMilliseconds(REQUEST_TIMEOUT_MILLIS))
+                .setResponseTimeout(Timeout.ofMilliseconds(REQUEST_TIMEOUT_MILLIS))
+                .setConnectionRequestTimeout(Timeout.ofMilliseconds(REQUEST_TIMEOUT_MILLIS))
+                .build();
+
+        CloseableHttpClient httpClient = HttpClients.custom()
+                .setConnectionManager(PoolingHttpClientConnectionManagerBuilder.create()
+                        .setMaxConnTotal(128)
+                        .setMaxConnPerRoute(32)
+                        .build())
+                .setDefaultRequestConfig(requestConfig)
+                .disableCookieManagement()
+                .build();
+
+        HttpComponentsClientHttpRequestFactory requestFactory = new HttpComponentsClientHttpRequestFactory(httpClient);
+        requestFactory.setReadTimeout(REQUEST_TIMEOUT_MILLIS);
+        return new RestTemplate(requestFactory);
+    }
+
+    /**
+     * Creates the shared static portion of request headers.
+     */
+    private static HttpHeaders createBaseHeadersTemplate() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+        headers.setAcceptLanguageAsLocales(List.of(java.util.Locale.SIMPLIFIED_CHINESE, java.util.Locale.CHINA));
+        headers.set(HttpHeaders.ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9");
+        headers.set(HttpHeaders.CACHE_CONTROL, "no-cache");
+        headers.set(HttpHeaders.PRAGMA, "no-cache");
+        headers.set(HttpHeaders.CONNECTION, "keep-alive");
+        headers.set(HttpHeaders.ACCEPT_ENCODING, "gzip, deflate, br");
+        headers.set(HttpHeaders.USER_AGENT, "Mozilla/5.0 (Linux; Android 12; M2012K11AC Build/SKQ1.211006.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.0.0 Mobile Safari/537.36 iBox/1.0");
+        headers.set("Origin", "https://www.ibox.art");
+        headers.set("Referer", "https://www.ibox.art/");
+        headers.set("X-Requested-With", "com.ibox.app");
+        return headers;
     }
 }

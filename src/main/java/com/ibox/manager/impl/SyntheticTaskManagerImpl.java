@@ -328,10 +328,10 @@ public class SyntheticTaskManagerImpl implements SyntheticTaskManager {
             updateLastResult(task.getId(), "PREPARE_CENTER_FAIL", "预热阶段获取合成中心详情失败");
             return null;
         }
-        if (center.getSyntheticStatus() == null || center.getSyntheticStatus() != 1) {
-            updateLastResult(task.getId(), "PREPARE_CENTER_CLOSED", "预热阶段发现当前通道不可合成");
-            return null;
-        }
+//        if (center.getSyntheticStatus() == null || center.getSyntheticStatus() != 1) {
+//            updateLastResult(task.getId(), "PREPARE_CENTER_CLOSED", "预热阶段发现当前通道不可合成");
+//            return null;
+//        }
         if (center.getEndTime() != null && LocalDateTime.now().isAfter(ofMillis(center.getEndTime()))) {
             updateLastResult(task.getId(), "PREPARE_CENTER_ENDED", "预热阶段发现活动已结束");
             return null;

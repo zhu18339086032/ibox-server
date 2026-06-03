@@ -37,6 +37,9 @@ public class IboxStartupTask implements ApplicationRunner {
     @Autowired
     private IboxAccountCache iboxAccountCache;
 
+    @Autowired
+    private AccountRequestContextManager accountRequestContextManager;
+
     /**
      * 市场藏品缓存
      */
@@ -58,15 +61,19 @@ public class IboxStartupTask implements ApplicationRunner {
      * 加载默认账号到缓存
      */
     private void loadDefaultAccount() {
-        IboxAccountEntity account = iboxAccountService.lambdaQuery()
+        List<IboxAccountEntity> accounts = iboxAccountService.lambdaQuery()
                 .orderByAsc(IboxAccountEntity::getId)
-                .last("limit 1")
-                .one();
-        if (account == null) {
+                .list();
+        if (accounts == null || accounts.isEmpty()) {
             log.warn("【启动预热】未查询到默认账号，账号缓存未加载");
             return;
         }
+        IboxAccountEntity account = accounts.getFirst();
         iboxAccountCache.setDefaultAccount(account);
+        for (IboxAccountEntity item : accounts) {
+            iboxAccountCache.put(item);
+            accountRequestContextManager.refresh(item);
+        }
         log.info("【启动预热】默认账号缓存加载完成，账号ID:{}, iBox用户:{}", account.getId(), account.getAccountName());
     }
 
