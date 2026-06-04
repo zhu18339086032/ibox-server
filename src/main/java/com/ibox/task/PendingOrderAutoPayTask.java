@@ -9,6 +9,7 @@ import com.ibox.entity.IboxAccountEntity;
 import com.ibox.model.res.ibox.IboxApiResponse;
 import com.ibox.model.res.ibox.IboxPageDataRes;
 import com.ibox.model.res.ibox.OrderDetailFullRes;
+import com.ibox.model.res.ibox.OrderDetailRes;
 import com.ibox.model.res.ibox.OrderPaymentInfoRes;
 import com.ibox.model.res.ibox.OrderRes;
 import com.ibox.service.IboxAccountService;
@@ -24,8 +25,11 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 待支付订单自动付款任务。
@@ -79,9 +83,8 @@ public class PendingOrderAutoPayTask {
      * 定时扫描全部账号的待支付订单。
      * 命中购买任务映射且价格校验通过时，进入自动付款入口。
      */
-    @Scheduled(fixedDelay = 5000L, initialDelay = 5000L)
+    @Scheduled(fixedDelay = 20000L, initialDelay = 5000L)
     public void scanPendingOrders() {
-        // 先做配置级兜底，避免任务启动后因为配置缺失一直打异常日志。
         if (!autoPayEnabled) {
             return;
         }
@@ -128,15 +131,63 @@ public class PendingOrderAutoPayTask {
             return;
         }
         OrderRes firstOrderRes = orders.getFirst();
-        String noticeMessage = "iBox待支付订单提醒，账号ID：" + account.getId()
-            + "，账号名称：" + safeText(account.getAccountName())
-            + "，待支付订单数：" + orders.size()
-            + "，首单订单ID：" + safeOrderUuid(firstOrderRes)
-            + "，首单藏品：" + safeOrderName(firstOrderRes)
-            + "，首单价格：" + safePrice(firstOrderRes.getPrice());
-        feishuMessageUtil.sendText(noticeMessage, "wait_pay:" + account.getId(), 4);
-        log.info("【待支付自动付款】获取首个订单，【{}】【{}】", firstOrderRes.getProductPreview().getName(), firstOrderRes.getProductPreview());
-//        processOrder(account, firstOrderRes);
+        IboxApiResponse<OrderDetailRes> detailResponse = iboxClient.get(account.getBearerToken(), String.format(UrlConstant.ORDER_DETAIL_URL, firstOrderRes.getOrderUuid()), null, OrderDetailRes.class);
+        if (detailResponse == null || detailResponse.getCode() == null || detailResponse.getCode() != 0 || detailResponse.getData() == null) {
+            return;
+        }
+
+        OrderDetailRes detail = detailResponse.getData();
+        String dedupKey = "pending-order-card:" + account.getId() + ":" + safeOrderUuid(firstOrderRes);
+        feishuMessageUtil.sendCard(buildPendingOrderCard(account, firstOrderRes, detail, orders.size()), dedupKey, 3);
+        log.info("【待支付自动付款】获取首个待支付订单，accountId:{}, accountName:{}, orderUuid:{}, collectionName:{}, pendingCount:{}",
+                account.getId(),
+                safeText(account.getAccountName()),
+                safeOrderUuid(firstOrderRes),
+                resolveOrderName(firstOrderRes, detail),
+                orders.size());
+        processOrder(account, firstOrderRes);
+    }
+
+    /**
+     * 构建“账号存在待支付订单”的飞书卡片。
+     * 当前卡片用于提醒人工关注，因此把首单信息和当前待支付数量一起带上。
+     *
+     * @param account      iBox账号
+     * @param order        首个待支付订单
+     * @param detail       订单详情
+     * @param pendingCount 当前账号待支付总数
+     * @return 飞书交互卡片
+     */
+    private Map<String, Object> buildPendingOrderCard(IboxAccountEntity account, OrderRes order, OrderDetailRes detail, int pendingCount) {
+        StringBuilder content = new StringBuilder();
+        content.append("**来源：** 待支付订单巡检")
+                .append("\n**账号ID：** ").append(account == null || account.getId() == null ? "-" : account.getId())
+                .append("\n**账号名称：** ").append(account == null ? "-" : safeText(account.getAccountName()))
+                .append("\n**待支付数量：** ").append(Math.max(pendingCount, 0))
+                .append("\n**首单藏品：** ").append(resolveOrderName(order, detail))
+                .append("\n**订单总价：** ").append(resolveOrderPrice(order, detail))
+                .append("\n**订单数量：** ").append(resolveOrderQuantity(detail))
+                .append("\n**下单时间：** ").append(detail == null ? "-" : safeText(detail.getCreatedAt()))
+                .append("\n**订单ID：** ").append(safeOrderUuid(order));
+
+        List<String> productLines = extractProductPriceLines(detail);
+        if (!productLines.isEmpty()) {
+            content.append("\n**明细价格：** ").append(String.join(" / ", productLines));
+        }
+
+        Map<String, Object> header = new HashMap<>();
+        header.put("title", Map.of("tag", "plain_text", "content", "iBox 待支付订单提醒"));
+        header.put("template", "orange");
+
+        Map<String, Object> element = new HashMap<>();
+        element.put("tag", "markdown");
+        element.put("content", content.toString());
+
+        Map<String, Object> card = new HashMap<>();
+        card.put("config", Map.of("wide_screen_mode", true, "enable_forward", true));
+        card.put("header", header);
+        card.put("elements", List.of(element));
+        return card;
     }
 
     /**
@@ -162,7 +213,7 @@ public class PendingOrderAutoPayTask {
      * 只有图片和价格都命中购买任务时，才允许进入付款流程。
      *
      * @param account iBox账号
-     * @param order 待支付订单
+     * @param order   待支付订单
      */
     private void processOrder(IboxAccountEntity account, OrderRes order) {
         // 订单里没有图片，就无法和购买任务的图片映射做关联确认。
@@ -209,27 +260,27 @@ public class PendingOrderAutoPayTask {
      * 查询订单详情，只有当订单剩余过期时间小于阈值时才允许自动支付。
      *
      * @param account iBox账号
-     * @param order 待支付订单
+     * @param order   待支付订单
      * @return true 表示可以立即自动支付
      */
     private boolean shouldAutoPayNow(IboxAccountEntity account, OrderRes order) {
         try {
             IboxApiResponse<OrderDetailFullRes> detailResponse = iboxClient.get(
-                account.getBearerToken(),
-                String.format(UrlConstant.ORDER_DETAIL_URL, order.getOrderUuid()),
-                null,
-                OrderDetailFullRes.class
+                    account.getBearerToken(),
+                    String.format(UrlConstant.ORDER_DETAIL_URL, order.getOrderUuid()),
+                    null,
+                    OrderDetailFullRes.class
             );
             if (detailResponse == null || detailResponse.getData() == null) {
                 log.warn("【待支付自动付款】获取订单详情失败，accountId:{}, orderUuid:{}, response:{}",
-                    account.getId(), safeOrderUuid(order), JSONObject.toJSONString(detailResponse));
+                        account.getId(), safeOrderUuid(order), JSONObject.toJSONString(detailResponse));
                 return false;
             }
 
             String expiredAt = detailResponse.getData().getExpiredAt();
             if (expiredAt == null || expiredAt.isBlank()) {
                 log.warn("【待支付自动付款】订单详情缺少过期时间，accountId:{}, orderUuid:{}",
-                    account.getId(), safeOrderUuid(order));
+                        account.getId(), safeOrderUuid(order));
                 return false;
             }
 
@@ -237,24 +288,24 @@ public class PendingOrderAutoPayTask {
             long remainSeconds = Duration.between(LocalDateTime.now(), expiredTime).getSeconds();
             if (remainSeconds < 0) {
                 log.info("【待支付自动付款】订单已过期，跳过支付，accountId:{}, orderUuid:{}, remainSeconds:{}",
-                    account.getId(), safeOrderUuid(order), remainSeconds);
+                        account.getId(), safeOrderUuid(order), remainSeconds);
                 return false;
             }
             if (remainSeconds >= AUTO_PAY_EXPIRE_THRESHOLD_SECONDS) {
                 log.info("【待支付自动付款】订单未到自动支付窗口，暂不支付，accountId:{}, orderUuid:{}, remainSeconds:{}",
-                    account.getId(), safeOrderUuid(order), remainSeconds);
+                        account.getId(), safeOrderUuid(order), remainSeconds);
                 return false;
             }
             log.info("【待支付自动付款】订单进入自动支付窗口，accountId:{}, orderUuid:{}, remainSeconds:{}",
-                account.getId(), safeOrderUuid(order), remainSeconds);
+                    account.getId(), safeOrderUuid(order), remainSeconds);
             return true;
         } catch (DateTimeParseException e) {
             log.warn("【待支付自动付款】订单过期时间解析失败，accountId:{}, orderUuid:{}",
-                account.getId(), safeOrderUuid(order), e);
+                    account.getId(), safeOrderUuid(order), e);
             return false;
         } catch (Exception e) {
             log.warn("【待支付自动付款】查询订单详情异常，accountId:{}, orderUuid:{}",
-                account.getId(), safeOrderUuid(order), e);
+                    account.getId(), safeOrderUuid(order), e);
             return false;
         }
     }
@@ -264,7 +315,7 @@ public class PendingOrderAutoPayTask {
      * 流程包含：获取支付链接、提取 uuid、汇付状态确认、余额支付。
      *
      * @param account iBox账号
-     * @param order 待支付订单
+     * @param order   待支付订单
      */
     private void payPendingOrder(IboxAccountEntity account, OrderRes order) {
         try {
@@ -339,6 +390,51 @@ public class PendingOrderAutoPayTask {
             return "-";
         }
         return order.getProductPreview().getName();
+    }
+
+    /**
+     * 优先使用订单详情中的藏品名，避免列表预览字段为空时通知不完整。
+     */
+    private String resolveOrderName(OrderRes order, OrderDetailRes detail) {
+        if (detail != null && detail.getProductPreview() != null && detail.getProductPreview().getName() != null && !detail.getProductPreview().getName().isBlank()) {
+            return detail.getProductPreview().getName();
+        }
+        return safeOrderName(order);
+    }
+
+    /**
+     * 优先展示订单详情总价，详情缺失时回退到列表价格。
+     */
+    private String resolveOrderPrice(OrderRes order, OrderDetailRes detail) {
+        if (detail != null && detail.getPrice() != null) {
+            return safePrice(detail.getPrice());
+        }
+        return order == null ? "-" : safePrice(order.getPrice());
+    }
+
+    /**
+     * 安全读取订单数量。
+     */
+    private String resolveOrderQuantity(OrderDetailRes detail) {
+        return detail == null || detail.getQuantity() == null ? "-" : String.valueOf(detail.getQuantity());
+    }
+
+    /**
+     * 提取订单明细中的逐件价格，方便快速判断是否是预期订单。
+     */
+    private List<String> extractProductPriceLines(OrderDetailRes detail) {
+        if (detail == null || detail.getProducts() == null || detail.getProducts().isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> lines = new ArrayList<>();
+        for (OrderDetailRes.ProductItem product : detail.getProducts()) {
+            if (product == null) {
+                continue;
+            }
+            String name = product.getName() == null || product.getName().isBlank() ? "商品" : product.getName();
+            lines.add(name + ":" + safePrice(product.getPrice()));
+        }
+        return lines;
     }
 
     /**

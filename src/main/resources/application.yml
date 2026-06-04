@@ -26,7 +26,7 @@ springdoc:
 
 ibox:
   auto-pay:
-    enabled: true
+    enabled: false
     password: "347364"
   proxy:
     api-url: http://api.xiequ.cn/VAD/GetIp.aspx?act=getturn82&uid=111218&vkey=5889F0109BE2B35754B00497A318544A&num=1&time=6&plat=1&re=0&type=7&so=1&group=51&ow=1&spl=1&addr=&db=1

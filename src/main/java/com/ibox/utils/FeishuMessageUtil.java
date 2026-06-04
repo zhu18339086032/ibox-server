@@ -96,6 +96,35 @@ public class FeishuMessageUtil {
         postMessage(body, JSONObject.toJSONString(card));
     }
 
+    /**
+     * 发送带去重时间窗的飞书卡片消息。
+     * 相同 key 在指定分钟数内只发送一次，避免短时间重复卡片轰炸。
+     *
+     * @param card 卡片内容
+     * @param key 去重业务键
+     * @param minutes 去重时间窗，单位分钟
+     */
+    public void sendCard(Map<String, Object> card, String key, int minutes) {
+        if (minutes <= 0 || key == null || key.isBlank()) {
+            sendCard(card);
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        long windowMillis = minutes * 60L * 1000L;
+        Long lastSendTime = TEXT_SEND_CACHE.get(key);
+        if (lastSendTime != null && now - lastSendTime < windowMillis) {
+            log.info("【飞书通知】命中去重时间窗，跳过发送卡片，key:{}, minutes:{}, remainMs:{}",
+                    key,
+                    minutes,
+                    windowMillis - (now - lastSendTime));
+            return;
+        }
+
+        TEXT_SEND_CACHE.put(key, now);
+        sendCard(card);
+    }
+
     private void postMessage(Map<String, Object> body, String logContent) {
         try {
             HttpHeaders headers = new HttpHeaders();
