@@ -145,7 +145,7 @@ public class PendingOrderAutoPayTask {
                 safeOrderUuid(firstOrderRes),
                 resolveOrderName(firstOrderRes, detail),
                 orders.size());
-        processOrder(account, firstOrderRes);
+//        processOrder(account, firstOrderRes);
     }
 
     /**
