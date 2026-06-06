@@ -64,7 +64,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
     /**
      * 候选藏品允许下单的最小地板价。
      */
-    private static final BigDecimal MIN_FLOOR_PRICE = new BigDecimal("100");
+    private static final BigDecimal MIN_FLOOR_PRICE = new BigDecimal("300");
 
     /**
      * 首页推荐位固定 areaType。
@@ -148,7 +148,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
 
         ProxyInfo announcementListProxy = iboxProxyService.getNextConfigProxy();
         long listStartAt = System.nanoTime();
-        IboxApiResponse<IboxPageDataRes<AnnouncementRes>> listResponse = iboxClient.get("", String.format(UrlConstant.ANNOUNCEMENT_LIST_URL, -1, 1, 20), null, new TypeReference<>() {
+        IboxApiResponse<IboxPageDataRes<AnnouncementRes>> listResponse = iboxClient.get("", String.format(UrlConstant.ANNOUNCEMENT_LIST_URL, -1, 1, 1), null, new TypeReference<>() {
         }, announcementListProxy);
         long listCostMs = elapsedMs(listStartAt);
 
@@ -679,8 +679,8 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
             IboxAccountEntity account = accounts.get(index);
             MatchedMarketCollectionRes candidate = candidates.get(index % candidates.size());
             int purchaseCount = candidate.getFloorPrice() != null && candidate.getFloorPrice().compareTo(MIN_FLOOR_PRICE) <= 0
-                ? 6
-                : resolvePurchaseCount(config);
+                ? 9
+                : 2;
             Integer paymentPlatformCode = resolvePaymentPlatformCode(account, config);
             BatchPurchaseConsignmentOrdersReq request = buildBatchPurchaseRequest(
                 candidate.getId(),
