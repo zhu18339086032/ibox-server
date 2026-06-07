@@ -1,0 +1,28 @@
+CREATE TABLE `ibox_consignment_task`
+(
+    `id`                          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `task_name`                   VARCHAR(100) NOT NULL COMMENT '任务名称',
+    `account_id`                  BIGINT       NOT NULL COMMENT '账号ID',
+    `digital_collection_group_id` BIGINT       NOT NULL COMMENT '商品组ID',
+    `collection_name`             VARCHAR(100) NOT NULL COMMENT '商品名称',
+    `task_type`                   VARCHAR(20)  NOT NULL COMMENT '任务类型，LIST-上架，DELIST-下架',
+    `target_count`                INT          NOT NULL DEFAULT 0 COMMENT '目标数量',
+    `executed_count`              INT          NOT NULL DEFAULT 0 COMMENT '已执行数量',
+    `success_count`               INT          NOT NULL DEFAULT 0 COMMENT '成功数量',
+    `fail_count`                  INT          NOT NULL DEFAULT 0 COMMENT '失败数量',
+    `interval_millis`             BIGINT       NOT NULL COMMENT '执行间隔，单位毫秒，最小1000',
+    `consign_price`               DECIMAL(10, 2)        DEFAULT NULL COMMENT '上架价格，下架任务可为空',
+    `consign_password`            VARCHAR(100)          DEFAULT NULL COMMENT '寄售密码',
+    `status`                      TINYINT      NOT NULL DEFAULT 1 COMMENT '任务状态，0-禁用，1-启用',
+    `running`                     TINYINT      NOT NULL DEFAULT 0 COMMENT '是否运行中，0-否，1-是',
+    `last_message`                VARCHAR(500)          DEFAULT NULL COMMENT '最近一次执行结果',
+    `remark`                      VARCHAR(500)          DEFAULT NULL COMMENT '备注',
+    `created_at`                  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at`                  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`                     TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除标记，0-未删除，1-已删除',
+    PRIMARY KEY (`id`),
+    KEY                           `idx_account_id` (`account_id`),
+    KEY                           `idx_group_id` (`digital_collection_group_id`),
+    KEY                           `idx_task_type` (`task_type`),
+    KEY                           `idx_status_running` (`status`, `running`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='寄售任务表';
