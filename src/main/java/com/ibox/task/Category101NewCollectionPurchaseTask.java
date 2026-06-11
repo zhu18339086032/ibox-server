@@ -17,6 +17,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -43,7 +44,7 @@ public class Category101NewCollectionPurchaseTask {
     /**
      * 目标分类 ID。
      */
-    private static final int TARGET_SEGMENT_ID = 101;
+    private static final int TARGET_SEGMENT_ID = 102;
 
     /**
      * 单次拉取页码。
@@ -113,7 +114,7 @@ public class Category101NewCollectionPurchaseTask {
     /**
      * 启动时加载账号，并开启 while(true) 后台监听线程。
      */
-//    @PostConstruct
+    @PostConstruct
     public void startMonitorLoop() {
         this.cachedAccounts = loadAvailableAccountsOnce();
         log.info("【分类101新品监听】启动完成，已加载账号数量:{}", cachedAccounts.size());
@@ -169,10 +170,12 @@ public class Category101NewCollectionPurchaseTask {
         }
 
         for (MarketCollectionRes collection : newCollections) {
-            log.info("【分类101新品监听】发现新品，准备全账号并发批量下单，collectionId:{}, name:{}, accountCount:{}",
-                collection.getId(), collection.getName(), cachedAccounts.size());
-            for (IboxAccountEntity account : cachedAccounts) {
-                purchaseExecutor.submit(() -> tryBatchPurchase(account, collection));
+            if (collection.getFloorPrice().compareTo(new BigDecimal(10))>=0){
+                log.info("【分类101新品监听】发现新品，准备全账号并发批量下单，collectionId:{}, name:{}, accountCount:{}",
+                        collection.getId(), collection.getName(), cachedAccounts.size());
+                for (IboxAccountEntity account : cachedAccounts) {
+                    purchaseExecutor.submit(() -> tryBatchPurchase(account, collection));
+                }
             }
         }
     }

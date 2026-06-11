@@ -1,0 +1,25 @@
+CREATE TABLE `ibox_designated_purchase_task`
+(
+    `id`                          BIGINT         NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `task_name`                   VARCHAR(100)   NOT NULL COMMENT '任务名称',
+    `account_id`                  BIGINT         NOT NULL COMMENT '购买账号ID',
+    `target_user_id`              BIGINT         NOT NULL COMMENT '目标用户ID',
+    `digital_collection_group_id` BIGINT         NOT NULL COMMENT '商品组ID',
+    `collection_name`             VARCHAR(100)   NOT NULL COMMENT '商品名称',
+    `max_count`                   INT            NOT NULL DEFAULT 1 COMMENT '目标购买数量',
+    `purchased_count`             INT            NOT NULL DEFAULT 0 COMMENT '已购买数量',
+    `max_single_price`            DECIMAL(10, 2) NOT NULL COMMENT '最高价格',
+    `interval_millis`             BIGINT         NOT NULL COMMENT '轮询间隔毫秒',
+    `payment_platform_code`       INT            NOT NULL DEFAULT 30 COMMENT '支付平台编码',
+    `status`                      TINYINT        NOT NULL DEFAULT 1 COMMENT '任务状态，0-禁用，1-启用',
+    `running`                     TINYINT        NOT NULL DEFAULT 0 COMMENT '是否运行中，0-否，1-是',
+    `remark`                      VARCHAR(500)            DEFAULT NULL COMMENT '备注',
+    `created_at`                  DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at`                  DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`                     TINYINT        NOT NULL DEFAULT 0 COMMENT '逻辑删除标记，0-未删除，1-已删除',
+    PRIMARY KEY (`id`),
+    KEY `idx_account_id` (`account_id`),
+    KEY `idx_target_user_id` (`target_user_id`),
+    KEY `idx_group_id` (`digital_collection_group_id`),
+    KEY `idx_status_running` (`status`, `running`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='指定购买任务表';

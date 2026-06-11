@@ -74,7 +74,7 @@ public class MarketCollectionManagerImpl implements MarketCollectionManager {
 
         List<MarketCollectionEntity> totalList = new ArrayList<>();
         // https://sail-api.ibox.art/public-service/markets/segments?timeRange=0&pageNo=1&pageSize=-1
-        List<Integer> segmentIdList = Arrays.asList(97, 96, 89, 94, 92, 87, 83, 86, 84, 54, 39, 93);
+        List<Integer> segmentIdList = Arrays.asList(97, 96, 89, 94, 92, 87, 83, 86, 84, 54, 39, 93,102);
         for (Integer segmentId : segmentIdList) {
             int pageNo = 1;
             int pageSize = 50;
