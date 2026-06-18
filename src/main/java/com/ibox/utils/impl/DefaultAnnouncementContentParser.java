@@ -22,7 +22,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     /**
      * Keywords that should be excluded from parse results.
      */
-    private static final List<String> EXCLUDED_KEYWORDS = List.of("万能材料", "新春限定", "扶光踏梦", "秀山", "大镖客", "蕃红李李·巴蛇", "锦鲤版", "晴", "青岚·巳蛇", "景瓷初成", "葡萄姑娘", "蝴蝶兰姑娘", "四神博局镜", "四神十二生肖镜", "瑞兽葡萄纹铜镜", "九仙女-花隐","茉莉姑娘","美加墨BoBo");
+    private static final List<String> EXCLUDED_KEYWORDS = List.of("万能材料", "新春限定", "扶光踏梦", "秀山", "大镖客", "蕃红李李·巴蛇", "锦鲤版", "晴", "青岚·巳蛇", "景瓷初成", "葡萄姑娘", "蝴蝶兰姑娘", "四神博局镜", "四神十二生肖镜", "瑞兽葡萄纹铜镜", "九仙女-花隐","茉莉姑娘","美加墨BoBo","大美拉萨","军书十二卷","喜糖熊猫");
 
     /**
      * Noise markers used to cut off the trailing non-target goods section.
@@ -34,7 +34,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
      */
     @Override
     public List<String> parseCollectionNames(String title, String category, String content) {
-        if (title.contains("空投公示") || title.contains("关闭求购") || (title.contains("美加墨BoBo") && title.contains("合成"))) {
+        if (title.contains("公示") || title.contains("关闭求购") || (title.contains("美加墨BoBo") && title.contains("合成"))) {
             return new LinkedList<>();
         }
         if (category != null && category.contains("寄售公告")) {
