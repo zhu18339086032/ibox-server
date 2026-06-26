@@ -64,7 +64,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
     /**
      * 候选藏品允许下单的最小地板价。
      */
-    private static final BigDecimal MIN_FLOOR_PRICE = new BigDecimal("300");
+    private static final BigDecimal MIN_FLOOR_PRICE = new BigDecimal("200");
 
     /**
      * 首页推荐位固定 areaType。
@@ -200,7 +200,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         List<MatchedMarketCollectionRes> candidates = resolveMatchedCandidates(collectionNames, priceLimit);
         long matchCostMs = elapsedMs(matchStartAt);
         if (candidates.isEmpty()) {
-            log.warn("【公告监控】未匹配到可下单藏品, uuid:{}, listCostMs:{}, detailCostMs:{}, parseCostMs:{}, matchCostMs:{}", latest.getUuid(), listCostMs, detailCostMs, parseCostMs, matchCostMs);
+            log.warn("【公告监控】未匹配到可下单藏品");
             return;
         }
 
@@ -443,13 +443,10 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
      * 计算批量购买请求中的单价上限。
      */
     private int resolveMaxSinglePrice(BigDecimal floorPrice, BigDecimal priceLimit) {
-        if (priceLimit != null) {
-            return priceLimit.intValue();
+        if (floorPrice != null && floorPrice.compareTo(BigDecimal.ZERO) > 0) {
+            return floorPrice.multiply(new BigDecimal("1.7")).intValue();
         }
-        if (floorPrice == null) {
-            return 0;
-        }
-        return floorPrice.multiply(new BigDecimal("1.5")).intValue();
+        return priceLimit == null ? 0 : priceLimit.intValue();
     }
 
     /**
@@ -678,13 +675,11 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         for (int index = 0; index < assignmentCount; index++) {
             IboxAccountEntity account = accounts.get(index);
             MatchedMarketCollectionRes candidate = candidates.get(index % candidates.size());
-            int purchaseCount = candidate.getFloorPrice() != null && candidate.getFloorPrice().compareTo(MIN_FLOOR_PRICE) <= 0
-                ? 9
-                : 2;
+//            int purchaseCount = candidate.getFloorPrice() != null && candidate.getFloorPrice().compareTo(MIN_FLOOR_PRICE) <= 0 ? 9 : 3;
             Integer paymentPlatformCode = resolvePaymentPlatformCode(account, config);
             BatchPurchaseConsignmentOrdersReq request = buildBatchPurchaseRequest(
                 candidate.getId(),
-                purchaseCount,
+                9,
                 resolveMaxSinglePrice(candidate.getFloorPrice(), config == null ? null : config.getMaxPrice()),
                 paymentPlatformCode
             );

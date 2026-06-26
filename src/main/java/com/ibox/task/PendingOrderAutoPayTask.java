@@ -291,11 +291,11 @@ public class PendingOrderAutoPayTask {
                         account.getId(), safeOrderUuid(order), remainSeconds);
                 return false;
             }
-            if (remainSeconds >= AUTO_PAY_EXPIRE_THRESHOLD_SECONDS) {
-                log.info("【待支付自动付款】订单未到自动支付窗口，暂不支付，accountId:{}, orderUuid:{}, remainSeconds:{}",
-                        account.getId(), safeOrderUuid(order), remainSeconds);
-                return false;
-            }
+//            if (remainSeconds >= AUTO_PAY_EXPIRE_THRESHOLD_SECONDS) {
+//                log.info("【待支付自动付款】订单未到自动支付窗口，暂不支付，accountId:{}, orderUuid:{}, remainSeconds:{}",
+//                        account.getId(), safeOrderUuid(order), remainSeconds);
+//                return false;
+//            }
             log.info("【待支付自动付款】订单进入自动支付窗口，accountId:{}, orderUuid:{}, remainSeconds:{}",
                     account.getId(), safeOrderUuid(order), remainSeconds);
             return true;
