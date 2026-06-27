@@ -300,7 +300,7 @@ public class DesignatedPurchaseTaskManagerImpl implements DesignatedPurchaseTask
                 .filter(item -> item.getId() != null)
                 .filter(item -> item.getPrice() != null)
                 .filter(item -> !isLockedCooldown(item))
-                .filter(item -> item.getConsignmentStatus() != null && item.getConsignmentStatus() == 1)
+                .filter(item -> item.getConsignmentStatus() != null && item.getDigitalCollectionStatus() == 2)
                 .filter(item -> item.getDigitalCollectionStatus() != null)
                 .filter(item -> maxPrice == null || item.getPrice().compareTo(maxPrice) <= 0)
                 .min(Comparator.comparing(UserDigitalCollectionItemRes::getPrice))
