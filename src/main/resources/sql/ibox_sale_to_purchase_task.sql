@@ -1,0 +1,27 @@
+CREATE TABLE `ibox_sale_to_purchase_task`
+(
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    `task_name` VARCHAR(100) NOT NULL COMMENT '任务名称',
+    `account_id` BIGINT NOT NULL COMMENT '账号ID',
+    `digital_collection_group_id` BIGINT NOT NULL COMMENT '商品组ID',
+    `collection_name` VARCHAR(100) NOT NULL COMMENT '商品名称',
+    `min_accept_price` DECIMAL(10, 2) NOT NULL COMMENT '最低接受价格',
+    `max_deal_count` INT NOT NULL DEFAULT 1 COMMENT '最大成交数量',
+    `dealt_count` INT NOT NULL DEFAULT 0 COMMENT '已成交数量',
+    `interval_millis` BIGINT NOT NULL DEFAULT 1000 COMMENT '轮询间隔(毫秒)',
+    `payment_platform_code` INT NOT NULL DEFAULT 30 COMMENT '支付平台编码',
+    `status` TINYINT NOT NULL DEFAULT 1 COMMENT '任务状态，0-禁用，1-启用',
+    `running` TINYINT NOT NULL DEFAULT 0 COMMENT '是否运行中，0-否，1-是',
+    `executed_count` INT NOT NULL DEFAULT 0 COMMENT '执行次数',
+    `success_count` INT NOT NULL DEFAULT 0 COMMENT '成功次数',
+    `fail_count` INT NOT NULL DEFAULT 0 COMMENT '失败次数',
+    `last_message` VARCHAR(500) DEFAULT NULL COMMENT '最近结果',
+    `remark` VARCHAR(500) DEFAULT NULL COMMENT '备注',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除标记，0-未删除，1-已删除',
+    PRIMARY KEY (`id`),
+    KEY `idx_account_id` (`account_id`),
+    KEY `idx_group_id` (`digital_collection_group_id`),
+    KEY `idx_status_running` (`status`, `running`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='出售求购任务表';

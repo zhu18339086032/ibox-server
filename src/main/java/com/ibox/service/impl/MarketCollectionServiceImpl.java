@@ -42,6 +42,7 @@ public class MarketCollectionServiceImpl extends ServiceImpl<MarketCollectionMap
     @Override
     public boolean markMissingAsDeleted(Set<Long> currentIds) {
         currentIds.add(21764L);
+        currentIds.add(23768L);
         LambdaQueryWrapper<MarketCollectionEntity> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.notIn(currentIds != null && !currentIds.isEmpty(), MarketCollectionEntity::getId, currentIds);
         queryWrapper.eq(MarketCollectionEntity::getDeleted, 0);

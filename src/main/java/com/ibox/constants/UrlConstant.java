@@ -46,6 +46,18 @@ public class UrlConstant {
     public static final String CONSIGNMENT_ORDER_LIST_URL = SAIL_API_BASE_URL + "/public-market-service/digital-collection-groups/%s/consignment-orders?pageNo=%s&pageSize=%s&sortType=%s&sortField=%s&uid=%s";
 
     /**
+     * 求购单列表接口
+     * GET /public-market-service/digital-collection-groups/{groupId}/purchase-orders?pageNo={pageNo}&pageSize={pageSize}&uid={uid}
+     */
+    public static final String PURCHASE_ORDER_LIST_URL = SAIL_API_BASE_URL + "/public-market-service/digital-collection-groups/%s/purchase-orders?pageNo=%s&pageSize=%s&uid=%s";
+
+    /**
+     * 出售求购成交接口
+     * POST /order-create-service/advance-orders/{advanceOrderId}/relation/{orderRelationId}/deal?uid={uid}
+     */
+    public static final String DEAL_PURCHASE_ORDER_URL = SAIL_API_BASE_URL + "/order-create-service/advance-orders/%s/relation/%s/deal?uid=%s";
+
+    /**
      * 创建单个寄售订单接口
      * POST https://sail-api.ibox.art/order-create-service/purchase-consignment-orders
      */
