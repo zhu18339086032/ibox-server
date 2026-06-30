@@ -444,7 +444,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
      */
     private int resolveMaxSinglePrice(BigDecimal floorPrice, BigDecimal priceLimit) {
         if (floorPrice != null && floorPrice.compareTo(BigDecimal.ZERO) > 0) {
-            return floorPrice.multiply(new BigDecimal("1.7")).intValue();
+            return floorPrice.multiply(new BigDecimal("2")).intValue();
         }
         return priceLimit == null ? 0 : priceLimit.intValue();
     }
@@ -457,7 +457,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
             return priceLimit;
         }
         if (entity != null && entity.getFloorPrice() != null && entity.getFloorPrice().compareTo(BigDecimal.ZERO) > 0) {
-            return entity.getFloorPrice().multiply(new BigDecimal("1.5"));
+            return entity.getFloorPrice().multiply(new BigDecimal("2"));
         }
         return BigDecimal.ZERO;
     }

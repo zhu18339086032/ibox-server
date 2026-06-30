@@ -44,7 +44,7 @@ public class Category101NewCollectionPurchaseTask {
     /**
      * 目标分类 ID。
      */
-    private static final int TARGET_SEGMENT_ID = 102;
+    private static final int TARGET_SEGMENT_ID = 94;
 
     /**
      * 单次拉取页码。
@@ -114,7 +114,7 @@ public class Category101NewCollectionPurchaseTask {
     /**
      * 启动时加载账号，并开启 while(true) 后台监听线程。
      */
-//    @PostConstruct
+    @PostConstruct
     public void startMonitorLoop() {
         this.cachedAccounts = loadAvailableAccountsOnce();
         log.info("【分类101新品监听】启动完成，已加载账号数量:{}", cachedAccounts.size());
