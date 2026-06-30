@@ -45,6 +45,8 @@ public class UrlConstant {
      */
     public static final String CONSIGNMENT_ORDER_LIST_URL = SAIL_API_BASE_URL + "/public-market-service/digital-collection-groups/%s/consignment-orders?pageNo=%s&pageSize=%s&sortType=%s&sortField=%s&uid=%s";
 
+    public static final String CONSIGNMENT_ORDER_LIST_WITH_SORT_VALUES_URL = SAIL_API_BASE_URL + "/public-market-service/digital-collection-groups/%s/consignment-orders?pageNo=%s&pageSize=%s&sortField=%s&sortType=%s&sortValues=%s";
+
     /**
      * 求购单列表接口
      * GET /public-market-service/digital-collection-groups/{groupId}/purchase-orders?pageNo={pageNo}&pageSize={pageSize}&uid={uid}
