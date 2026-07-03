@@ -64,7 +64,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
     /**
      * 候选藏品允许下单的最小地板价。
      */
-    private static final BigDecimal MIN_FLOOR_PRICE = new BigDecimal("200");
+    private static final BigDecimal MIN_FLOOR_PRICE = new BigDecimal("300");
 
     /**
      * 首页推荐位固定 areaType。
@@ -675,11 +675,11 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
         for (int index = 0; index < assignmentCount; index++) {
             IboxAccountEntity account = accounts.get(index);
             MatchedMarketCollectionRes candidate = candidates.get(index % candidates.size());
-//            int purchaseCount = candidate.getFloorPrice() != null && candidate.getFloorPrice().compareTo(MIN_FLOOR_PRICE) <= 0 ? 9 : 3;
+            int purchaseCount = candidate.getFloorPrice() != null && candidate.getFloorPrice().compareTo(MIN_FLOOR_PRICE) <= 0 ? 9 : 4;
             Integer paymentPlatformCode = resolvePaymentPlatformCode(account, config);
             BatchPurchaseConsignmentOrdersReq request = buildBatchPurchaseRequest(
                 candidate.getId(),
-                9,
+                    purchaseCount,
                 resolveMaxSinglePrice(candidate.getFloorPrice(), config == null ? null : config.getMaxPrice()),
                 paymentPlatformCode
             );

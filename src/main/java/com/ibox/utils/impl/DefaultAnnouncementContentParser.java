@@ -22,7 +22,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     /**
      * Keywords that should be excluded from parse results.
      */
-    private static final List<String> EXCLUDED_KEYWORDS = List.of("万能材料", "新春限定", "扶光踏梦", "秀山", "倚海龙", "蕃红李李·巴蛇", "锦鲤版", "晴", "茉莉姑娘","美加墨BoBo","大美拉萨","粽叶姑娘");
+    private static final List<String> EXCLUDED_KEYWORDS = List.of("小竹熊","万能材料", "2026李白","乾坤圈手中拿","者行孙","碧霄献金蛟剪","端午安康","新春限定", "扶光踏梦", "秀山", "倚海龙", "蕃红李李·巴蛇", "锦鲤版", "晴", "茉莉姑娘","美加墨BoBo","大美拉萨","粽叶姑娘");
 
     /**
      * Noise markers used to cut off the trailing non-target goods section.
