@@ -96,6 +96,13 @@ public class UrlConstant {
     public static final String ORDERS_DETAIL_URL = SAIL_API_BASE_URL + "/order-service/orders/%s";
 
     /**
+     * 平台用户仓库商品列表接口
+     * GET /personal-center-service/users/{userId}/digital-collection-groups?pageNo={pageNo}&pageSize={pageSize}&groupType={groupType}
+     */
+    public static final String PLATFORM_USER_COLLECTION_GROUPS_URL =
+            SAIL_API_BASE_URL + "/personal-center-service/users/%s/digital-collection-groups?pageNo=%s&pageSize=%s&groupType=%s";
+
+    /**
      * 活动合成列表接口
      * GET https://sail-api.ibox.art/synthesis-service/synthetic/activity/list?pageNo={pageNo}&pageSize={pageSize}
      */
