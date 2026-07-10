@@ -64,7 +64,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
     /**
      * 候选藏品允许下单的最小地板价。
      */
-    private static final BigDecimal MIN_FLOOR_PRICE = new BigDecimal("300");
+    private static final BigDecimal MIN_FLOOR_PRICE = new BigDecimal("150");
 
     /**
      * 首页推荐位固定 areaType。

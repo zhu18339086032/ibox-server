@@ -3,6 +3,7 @@ package com.ibox;
 import com.alibaba.fastjson.JSONObject;
 import com.ibox.client.IboxClient;
 import com.ibox.client.impl.DefaultIboxClient;
+import com.ibox.constants.TokenConstant;
 import com.ibox.constants.UrlConstant;
 import com.ibox.model.res.ibox.AnnouncementRes;
 import com.ibox.model.res.ibox.ConsignmentOrderListRes;
@@ -28,7 +29,7 @@ public class Test {
     public static void main1(String[] args) {
         IboxClient iboxClient = new DefaultIboxClient();
         String format = String.format(UrlConstant.MARKET_COLLECTION_LIST_URL, 1, 50);
-        IboxApiResponse<MarketCollectionListRes> response = iboxClient.get("eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJHYUtfN0VMOFFDNU5oc0FOMTJzOGFFYUdPdVJPcEJEcXFERnViOUpLY09nIn0.eyJleHAiOjE3ODEwOTE3NjMsImlhdCI6MTc3ODQ5OTc2MywianRpIjoiMGFkMTljZjMtMmUzOC00NmQxLTg2OTEtZDRhZGVlYjZhNDg2IiwiaXNzIjoiaHR0cHM6Ly9rZXljbG9hay5pYm94LmNvbS9yZWFsbXMvaWJveCIsImF1ZCI6WyJyZWFsbS1tYW5hZ2VtZW50IiwiYWNjb3VudCJdLCJzdWIiOiI5MjJhNTE5NC1lYjE1LTRlYTAtOGQ1Yy0wNzVlNWYyM2ZmYTciLCJ0eXAiOiJCZWFyZXIiLCJhenAiOiJ1c2VyLWNsaWVudCIsInNlc3Npb25fc3RhdGUiOiI1YjdiNDliNi0xM2IyLTQ2ODktOTE1Yy04M2JjMTZkM2M4NjMiLCJhY3IiOiIxIiwiYWxsb3dlZC1vcmlnaW5zIjpbIi8qIl0sInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJvZmZsaW5lX2FjY2VzcyIsImRlZmF1bHQtcm9sZXMtaWJveCIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsicmVhbG0tbWFuYWdlbWVudCI6eyJyb2xlcyI6WyJtYW5hZ2UtdXNlcnMiXX0sImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sInNjb3BlIjoiaWJveC1zY29wZSBwcm9maWxlIGVtYWlsIiwic2lkIjoiNWI3YjQ5YjYtMTNiMi00Njg5LTkxNWMtODNiYzE2ZDNjODYzIiwiaGFzRGVzdHJveWVkIjowLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsImlkVmVyaWZpZWQiOjEsInBheW1lbnRVc2VySWQiOiI5MjJhNTE5NC1lYjE1LTRlYTAtOGQ1Yy0wNzVlNWYyM2ZmYTciLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiIxOTEwNjcxMTU5MCIsIndhbGxldEFkZHJlc3MiOiIweDQ5YzIwNjRjODU4MDI4NmJlNTI4MzEyYWEyNmEzM2UxZDgzOGViOGIiLCJpc1Rlc3RlciI6MCwidXNlcklkIjozOTE5NjA4fQ.Vy0ZCD5YaJMPHL_vIOxg8LWmcwaDOE6dVX6v8AWgoJTLBu9po68kZJJ5UwgX4B28HYSiyx-CFTW9ug0ttNwUPG8QfOeWfuKha1ftpecOg0t0GXVlqYV47zTsK0aet-dO8NWCqgmPNe5M0amsBbKaFqEqrdMJ_QxXBngNa1zLxw6wo9k5pQ_DQiH9I8GGYSH3ZLw3qmI6NFGRIeZdo70i2rN9ficxfZhu5bpt366Q9Jrrx8fqhO7f30fw-Jc3SoKpLY7zt-Uj_6sgk-0v3bsD3e11NoSc3pRqDfjuKUX9QANWVMeFwVcHBhAwkcDnMbjXt76euc3cLTmCV-rKQN5AKA", format, new HashMap<>(), MarketCollectionListRes.class);
+        IboxApiResponse<MarketCollectionListRes> response = iboxClient.get(TokenConstant.TOKEN_3, format, new HashMap<>(), MarketCollectionListRes.class);
         log.info("【账户列表接口】响应结果:{}", JSONObject.toJSONString(response));
 
         if (response != null && response.getData() != null) {
@@ -40,7 +41,7 @@ public class Test {
 
     public static String main2() {
         IboxClient iboxClient = new DefaultIboxClient();
-        IboxApiResponse<AnnouncementRes> detailResponse = iboxClient.get("eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJHYUtfN0VMOFFDNU5oc0FOMTJzOGFFYUdPdVJPcEJEcXFERnViOUpLY09nIn0.eyJleHAiOjE3ODEwOTE3NjMsImlhdCI6MTc3ODQ5OTc2MywianRpIjoiMGFkMTljZjMtMmUzOC00NmQxLTg2OTEtZDRhZGVlYjZhNDg2IiwiaXNzIjoiaHR0cHM6Ly9rZXljbG9hay5pYm94LmNvbS9yZWFsbXMvaWJveCIsImF1ZCI6WyJyZWFsbS1tYW5hZ2VtZW50IiwiYWNjb3VudCJdLCJzdWIiOiI5MjJhNTE5NC1lYjE1LTRlYTAtOGQ1Yy0wNzVlNWYyM2ZmYTciLCJ0eXAiOiJCZWFyZXIiLCJhenAiOiJ1c2VyLWNsaWVudCIsInNlc3Npb25fc3RhdGUiOiI1YjdiNDliNi0xM2IyLTQ2ODktOTE1Yy04M2JjMTZkM2M4NjMiLCJhY3IiOiIxIiwiYWxsb3dlZC1vcmlnaW5zIjpbIi8qIl0sInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJvZmZsaW5lX2FjY2VzcyIsImRlZmF1bHQtcm9sZXMtaWJveCIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsicmVhbG0tbWFuYWdlbWVudCI6eyJyb2xlcyI6WyJtYW5hZ2UtdXNlcnMiXX0sImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sInNjb3BlIjoiaWJveC1zY29wZSBwcm9maWxlIGVtYWlsIiwic2lkIjoiNWI3YjQ5YjYtMTNiMi00Njg5LTkxNWMtODNiYzE2ZDNjODYzIiwiaGFzRGVzdHJveWVkIjowLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsImlkVmVyaWZpZWQiOjEsInBheW1lbnRVc2VySWQiOiI5MjJhNTE5NC1lYjE1LTRlYTAtOGQ1Yy0wNzVlNWYyM2ZmYTciLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiIxOTEwNjcxMTU5MCIsIndhbGxldEFkZHJlc3MiOiIweDQ5YzIwNjRjODU4MDI4NmJlNTI4MzEyYWEyNmEzM2UxZDgzOGViOGIiLCJpc1Rlc3RlciI6MCwidXNlcklkIjozOTE5NjA4fQ.Vy0ZCD5YaJMPHL_vIOxg8LWmcwaDOE6dVX6v8AWgoJTLBu9po68kZJJ5UwgX4B28HYSiyx-CFTW9ug0ttNwUPG8QfOeWfuKha1ftpecOg0t0GXVlqYV47zTsK0aet-dO8NWCqgmPNe5M0amsBbKaFqEqrdMJ_QxXBngNa1zLxw6wo9k5pQ_DQiH9I8GGYSH3ZLw3qmI6NFGRIeZdo70i2rN9ficxfZhu5bpt366Q9Jrrx8fqhO7f30fw-Jc3SoKpLY7zt-Uj_6sgk-0v3bsD3e11NoSc3pRqDfjuKUX9QANWVMeFwVcHBhAwkcDnMbjXt76euc3cLTmCV-rKQN5AKA", String.format(UrlConstant.ANNOUNCEMENT_DETAIL_URL, "91d87ed7009549c591194a6b2d8fb167"), null, AnnouncementRes.class);
+        IboxApiResponse<AnnouncementRes> detailResponse = iboxClient.get(TokenConstant.TOKEN_3, String.format(UrlConstant.ANNOUNCEMENT_DETAIL_URL, "f10c04c35c4a42d6aa129f389ed93379"), null, AnnouncementRes.class);
         log.info("【公告详情接口】响应结果:{}", detailResponse.getData().getContent());
         return detailResponse.getData().getContent();
     }
@@ -54,7 +55,7 @@ public class Test {
 
     public static void main4(String[] args) {
         IboxClient iboxClient = new DefaultIboxClient();
-        IboxApiResponse<ConsignmentOrderListRes> detailResponse = iboxClient.get("eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJHYUtfN0VMOFFDNU5oc0FOMTJzOGFFYUdPdVJPcEJEcXFERnViOUpLY09nIn0.eyJleHAiOjE3ODEwOTE3NjMsImlhdCI6MTc3ODQ5OTc2MywianRpIjoiMGFkMTljZjMtMmUzOC00NmQxLTg2OTEtZDRhZGVlYjZhNDg2IiwiaXNzIjoiaHR0cHM6Ly9rZXljbG9hay5pYm94LmNvbS9yZWFsbXMvaWJveCIsImF1ZCI6WyJyZWFsbS1tYW5hZ2VtZW50IiwiYWNjb3VudCJdLCJzdWIiOiI5MjJhNTE5NC1lYjE1LTRlYTAtOGQ1Yy0wNzVlNWYyM2ZmYTciLCJ0eXAiOiJCZWFyZXIiLCJhenAiOiJ1c2VyLWNsaWVudCIsInNlc3Npb25fc3RhdGUiOiI1YjdiNDliNi0xM2IyLTQ2ODktOTE1Yy04M2JjMTZkM2M4NjMiLCJhY3IiOiIxIiwiYWxsb3dlZC1vcmlnaW5zIjpbIi8qIl0sInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJvZmZsaW5lX2FjY2VzcyIsImRlZmF1bHQtcm9sZXMtaWJveCIsInVtYV9hdXRob3JpemF0aW9uIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnsicmVhbG0tbWFuYWdlbWVudCI6eyJyb2xlcyI6WyJtYW5hZ2UtdXNlcnMiXX0sImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sInNjb3BlIjoiaWJveC1zY29wZSBwcm9maWxlIGVtYWlsIiwic2lkIjoiNWI3YjQ5YjYtMTNiMi00Njg5LTkxNWMtODNiYzE2ZDNjODYzIiwiaGFzRGVzdHJveWVkIjowLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsImlkVmVyaWZpZWQiOjEsInBheW1lbnRVc2VySWQiOiI5MjJhNTE5NC1lYjE1LTRlYTAtOGQ1Yy0wNzVlNWYyM2ZmYTciLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiIxOTEwNjcxMTU5MCIsIndhbGxldEFkZHJlc3MiOiIweDQ5YzIwNjRjODU4MDI4NmJlNTI4MzEyYWEyNmEzM2UxZDgzOGViOGIiLCJpc1Rlc3RlciI6MCwidXNlcklkIjozOTE5NjA4fQ.Vy0ZCD5YaJMPHL_vIOxg8LWmcwaDOE6dVX6v8AWgoJTLBu9po68kZJJ5UwgX4B28HYSiyx-CFTW9ug0ttNwUPG8QfOeWfuKha1ftpecOg0t0GXVlqYV47zTsK0aet-dO8NWCqgmPNe5M0amsBbKaFqEqrdMJ_QxXBngNa1zLxw6wo9k5pQ_DQiH9I8GGYSH3ZLw3qmI6NFGRIeZdo70i2rN9ficxfZhu5bpt366Q9Jrrx8fqhO7f30fw-Jc3SoKpLY7zt-Uj_6sgk-0v3bsD3e11NoSc3pRqDfjuKUX9QANWVMeFwVcHBhAwkcDnMbjXt76euc3cLTmCV-rKQN5AKA", String.format(UrlConstant.CONSIGNMENT_ORDER_LIST_URL, "21880", "3919608"), null, ConsignmentOrderListRes.class);
+        IboxApiResponse<ConsignmentOrderListRes> detailResponse = iboxClient.get(TokenConstant.TOKEN_3, String.format(UrlConstant.CONSIGNMENT_ORDER_LIST_URL, "21880", "3919608"), null, ConsignmentOrderListRes.class);
         ConsignmentOrderListRes detailResponseData = detailResponse.getData();
         log.info("【公告内容解析】寄售公告详情:{}", detailResponseData.getList().size());
     }
@@ -81,6 +82,7 @@ public class Test {
     }
 
     public static void main(String[] args) throws Exception {
+        main2();
         List<String> contents = readAnnouncementFiles("D:\\nft_project\\ibox\\ibox-server\\src\\main\\java\\com\\ibox\\doc");
         for (String content : contents) {
             AnnouncementContentParser announcementContentParser = new DefaultAnnouncementContentParser();

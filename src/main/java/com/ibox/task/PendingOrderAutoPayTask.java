@@ -139,12 +139,7 @@ public class PendingOrderAutoPayTask {
         OrderDetailRes detail = detailResponse.getData();
         String dedupKey = "pending-order-card:" + account.getId() + ":" + safeOrderUuid(firstOrderRes);
         feishuMessageUtil.sendCard(buildPendingOrderCard(account, firstOrderRes, detail, orders.size()), dedupKey, 3);
-        log.info("【待支付自动付款】获取首个待支付订单，accountId:{}, accountName:{}, orderUuid:{}, collectionName:{}, pendingCount:{}",
-                account.getId(),
-                safeText(account.getAccountName()),
-                safeOrderUuid(firstOrderRes),
-                resolveOrderName(firstOrderRes, detail),
-                orders.size());
+        log.info("【待支付自动付款】获取首个待支付订单，accountId:{}, accountName:{}, orderUuid:{}, collectionName:{}, pendingCount:{}", account.getId(), safeText(account.getAccountName()), safeOrderUuid(firstOrderRes), resolveOrderName(firstOrderRes, detail), orders.size());
 //        processOrder(account, firstOrderRes);
     }
 

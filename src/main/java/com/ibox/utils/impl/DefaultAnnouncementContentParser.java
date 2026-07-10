@@ -6,7 +6,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -22,7 +21,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     /**
      * Keywords that should be excluded from parse results.
      */
-    private static final List<String> EXCLUDED_KEYWORDS = List.of("小竹熊","万能材料", "2026李白","乾坤圈手中拿","者行孙","碧霄献金蛟剪","端午安康","新春限定", "扶光踏梦", "秀山", "倚海龙", "蕃红李李·巴蛇", "锦鲤版", "晴", "茉莉姑娘","美加墨BoBo","大美拉萨","粽叶姑娘");
+    private static final List<String> EXCLUDED_KEYWORDS = List.of("小竹熊","万能材料","新春限定", "扶光踏梦", "秀山", "倚海龙", "蕃红李李·巴蛇", "锦鲤版", "晴", "大美福州","美加墨BoBo","大美拉萨","粽叶姑娘","邀请","吉祥如意");
 
     /**
      * Noise markers used to cut off the trailing non-target goods section.
@@ -158,6 +157,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     private List<String> parseMaterialSegmentsOnly(String plainText, Set<String> garbageGoods) {
         LinkedHashSet<String> holdingResult = new LinkedHashSet<>();
         LinkedHashSet<String> materialResult = new LinkedHashSet<>();
+        collectHoldingCollectionNames(plainText, holdingResult, garbageGoods);
         String truncatedText = plainText;
         int searchFrom = 0;
         while (searchFrom >= 0 && searchFrom < truncatedText.length()) {
@@ -170,26 +170,78 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
             String channelBlock = nextChannelStart < 0
                     ? truncatedText.substring(channelBodyStart)
                     : truncatedText.substring(channelBodyStart, nextChannelStart);
-            collectHoldingCollectionNames(channelBlock, holdingResult, garbageGoods);
             String materialBlock = extractMaterialBlock(channelBlock);
             if (materialBlock.isBlank()) {
                 searchFrom = nextChannelStart < 0 ? truncatedText.length() : nextChannelStart;
                 continue;
             }
-            extractCollectionNamesToSet(materialBlock, materialResult, garbageGoods);
+            collectMaterialCollectionNames(materialBlock, materialResult, garbageGoods);
             searchFrom = nextChannelStart < 0 ? truncatedText.length() : nextChannelStart;
         }
-        if (holdingResult.isEmpty() && materialResult.isEmpty()) {
-            collectHoldingCollectionNames(truncatedText, holdingResult, garbageGoods);
+        if (materialResult.isEmpty()) {
             String materialBlock = extractMaterialBlock(truncatedText);
             if (!materialBlock.isBlank()) {
-                extractCollectionNamesToSet(materialBlock, materialResult, garbageGoods);
+                collectMaterialCollectionNames(materialBlock, materialResult, garbageGoods);
             }
         }
         LinkedHashSet<String> result = new LinkedHashSet<>();
         result.addAll(holdingResult);
         result.addAll(materialResult);
         return new ArrayList<>(result);
+    }
+
+    /**
+     * Collects material-side collection names and skips large "任意" pools.
+     */
+    private void collectMaterialCollectionNames(String materialBlock, LinkedHashSet<String> result, Set<String> garbageGoods) {
+        if (materialBlock == null || materialBlock.isBlank()) {
+            return;
+        }
+        for (String clause : splitMaterialClauses(materialBlock)) {
+            if (shouldSkipAnyPoolClause(clause, garbageGoods)) {
+                log.info("【公告内容解析】过滤任意大材料池子句:{}", clause.replace('\n', ' ').trim());
+                continue;
+            }
+            extractCollectionNamesToSet(clause, result, garbageGoods);
+        }
+    }
+
+    /**
+     * Splits a material block into smaller clauses so each rule can be filtered independently.
+     */
+    private List<String> splitMaterialClauses(String materialBlock) {
+        List<String> clauses = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        for (String rawLine : materialBlock.split("\n")) {
+            String line = rawLine == null ? "" : rawLine.trim();
+            if (line.isBlank() || "合成材料".equals(line) || "+".equals(line)) {
+                if (current.length() > 0) {
+                    clauses.add(current.toString());
+                    current.setLength(0);
+                }
+                continue;
+            }
+            if (current.length() > 0) {
+                current.append('\n');
+            }
+            current.append(line);
+        }
+        if (current.length() > 0) {
+            clauses.add(current.toString());
+        }
+        return clauses;
+    }
+
+    /**
+     * Skips "任意" material clauses when the candidate collection count is too large.
+     */
+    private boolean shouldSkipAnyPoolClause(String clause, Set<String> garbageGoods) {
+        if (clause == null || clause.isBlank() || !clause.contains("任意")) {
+            return false;
+        }
+        LinkedHashSet<String> names = new LinkedHashSet<>();
+        extractCollectionNamesToSet(clause, names, garbageGoods);
+        return names.size() > 3;
     }
 
     /**
