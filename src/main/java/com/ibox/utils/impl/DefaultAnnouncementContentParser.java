@@ -21,7 +21,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     /**
      * Keywords that should be excluded from parse results.
      */
-    private static final List<String> EXCLUDED_KEYWORDS = List.of("小竹熊","万能材料","新春限定", "扶光踏梦", "秀山", "倚海龙", "蕃红李李·巴蛇", "锦鲤版", "晴", "大美福州","美加墨BoBo","大美拉萨","粽叶姑娘","邀请","吉祥如意");
+    private static final List<String> EXCLUDED_KEYWORDS = List.of("小竹熊","万能材料","新春限定", "扶光踏梦", "秀山", "倚海龙", "蕃红李李·巴蛇", "锦鲤版", "晴", "大美","美加墨BoBo","大美拉萨","粽叶姑娘","邀请","吉祥如意","黄金7月材料补给包");
 
     /**
      * Noise markers used to cut off the trailing non-target goods section.
@@ -33,7 +33,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
      */
     @Override
     public List<String> parseCollectionNames(String title, String category, String content) {
-        if (title.contains("公示") || title.contains("关闭求购") || (title.contains("美加墨BoBo") && title.contains("合成"))) {
+        if (title.contains("公示") || title.contains("关闭求购")) {
             return new LinkedList<>();
         }
         if (category != null && category.contains("寄售公告")) {
@@ -241,7 +241,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
         }
         LinkedHashSet<String> names = new LinkedHashSet<>();
         extractCollectionNamesToSet(clause, names, garbageGoods);
-        return names.size() > 3;
+        return names.size() > 2;
     }
 
     /**
@@ -258,6 +258,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
                 break;
             }
             int end = text.length();
+            end = minPositive(end, text.indexOf("持有藏品", holdingIndex + 4));
             end = minPositive(end, text.indexOf("快照时间", holdingIndex));
             end = minPositive(end, text.indexOf("空投发放时间", holdingIndex));
             end = minPositive(end, text.indexOf("合成材料", holdingIndex));
@@ -269,9 +270,26 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
             end = minPositive(end, text.indexOf("注：", holdingIndex));
             end = minPositive(end, text.indexOf("注:", holdingIndex));
             String segment = text.substring(holdingIndex, end);
+            if (shouldSkipHoldingClause(segment, garbageGoods)) {
+                log.info("【公告内容解析】过滤快照持有大材料池子句:{}", segment.replace('\n', ' ').trim());
+                searchFrom = holdingIndex + 4;
+                continue;
+            }
             extractCollectionNamesToSet(segment, result, garbageGoods);
             searchFrom = holdingIndex + 4;
         }
+    }
+
+    /**
+     * Skips snapshot holding clauses when the candidate collection count is too large.
+     */
+    private boolean shouldSkipHoldingClause(String clause, Set<String> garbageGoods) {
+        if (clause == null || clause.isBlank()) {
+            return false;
+        }
+        LinkedHashSet<String> names = new LinkedHashSet<>();
+        extractCollectionNamesToSet(clause, names, garbageGoods);
+        return names.size() > 2;
     }
 
     /**
