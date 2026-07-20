@@ -400,17 +400,19 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     }
 
     /**
-     * Finds the next channel marker.
+     * Finds the next block marker such as "通道一" or "活动二".
      */
     private int findNextChannelStart(String text, int fromIndex) {
         int searchFrom = Math.max(fromIndex, 0);
         while (searchFrom < text.length()) {
-            int candidate = text.indexOf("通道", searchFrom);
+            int channelCandidate = text.indexOf("通道", searchFrom);
+            int activityCandidate = text.indexOf("活动", searchFrom);
+            int candidate = firstPositive(channelCandidate, activityCandidate);
             if (candidate < 0) {
                 return -1;
             }
             int suffixIndex = candidate + 2;
-            if (suffixIndex < text.length() && isChannelSuffix(text.charAt(suffixIndex))) {
+            if (suffixIndex < text.length() && isBlockSuffix(text.charAt(suffixIndex))) {
                 return candidate;
             }
             searchFrom = candidate + 2;
@@ -427,13 +429,26 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     }
 
     /**
-     * Checks whether the character after "通道" looks like a valid channel suffix.
+     * Checks whether the character after "通道"/"活动" looks like a valid block suffix.
      */
-    private boolean isChannelSuffix(char value) {
+    private boolean isBlockSuffix(char value) {
         return value == '一' || value == '二' || value == '三' || value == '四'
                 || value == '五' || value == '六' || value == '七' || value == '八'
                 || value == '九' || value == '十'
                 || (value >= '0' && value <= '9');
+    }
+
+    /**
+     * Returns the earliest non-negative position among two candidates.
+     */
+    private int firstPositive(int left, int right) {
+        if (left < 0) {
+            return right;
+        }
+        if (right < 0) {
+            return left;
+        }
+        return Math.min(left, right);
     }
 
     /**
