@@ -12,6 +12,7 @@ import com.ibox.constants.UrlConstant;
 import com.ibox.entity.IboxAccountEntity;
 import com.ibox.entity.SaleToPurchaseTaskEntity;
 import com.ibox.manager.SaleToPurchaseTaskManager;
+import com.ibox.model.ProxyInfo;
 import com.ibox.model.req.web.SaleToPurchaseTaskPageReq;
 import com.ibox.model.req.web.SaleToPurchaseTaskSaveReq;
 import com.ibox.model.req.web.SaleToPurchaseTaskUpdateReq;
@@ -24,6 +25,7 @@ import com.ibox.model.res.web.MonitorTaskExecuteRes;
 import com.ibox.model.res.web.PageResponse;
 import com.ibox.model.res.web.SaleToPurchaseTaskRes;
 import com.ibox.service.IboxAccountService;
+import com.ibox.service.IboxProxyService;
 import com.ibox.service.SaleToPurchaseTaskService;
 import com.ibox.utils.FeishuMessageUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -52,7 +54,7 @@ public class SaleToPurchaseTaskManagerImpl implements SaleToPurchaseTaskManager 
 
     private static final int STATUS_ENABLED = 1;
 
-    private static final int PAGE_SIZE = 10;
+    private static final int PAGE_SIZE = 3;
 
     private static final String USER_DIGITAL_COLLECTION_GROUP_URL =
             UrlConstant.SAIL_API_BASE_URL + "/personal-center-service/users/digital-collection-groups/%s?pageNo=%s&pageSize=%s";
@@ -77,6 +79,8 @@ public class SaleToPurchaseTaskManagerImpl implements SaleToPurchaseTaskManager 
 
     @Value("${ibox.auto-pay.password:}")
     private String autoPayPassword;
+    @Autowired
+    private IboxProxyService iboxProxyService;
 
     @Override
     public PageResponse<SaleToPurchaseTaskRes> list(SaleToPurchaseTaskPageReq req) {
@@ -328,14 +332,19 @@ public class SaleToPurchaseTaskManagerImpl implements SaleToPurchaseTaskManager 
                 PAGE_SIZE,
                 account.getIboxUid()
         );
+        ProxyInfo nextConfigProxy = iboxProxyService.getNextConfigProxy();
         IboxApiResponse<PurchaseOrderPageRes> response = iboxClient.get(
                 account.getBearerToken(),
                 url,
                 null,
                 new TypeReference<PurchaseOrderPageRes>() {
-                }
+                },nextConfigProxy
         );
-        if (response == null || response.getCode() == null || response.getCode() != 0 || response.getData() == null || CollectionUtils.isEmpty(response.getData().getList())) {
+        if (response == null || response.getCode() == null || response.getCode() != 0 || response.getData() == null) {
+            return List.of();
+        }
+        if (CollectionUtils.isEmpty(response.getData().getList())) {
+            log.info("没有求购的订单");
             return List.of();
         }
         Map<String, PurchaseOrderItemRes> deduplicatedMap = new LinkedHashMap<>();

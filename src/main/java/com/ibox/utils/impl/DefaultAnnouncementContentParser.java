@@ -21,7 +21,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     /**
      * Keywords that should be excluded from parse results.
      */
-    private static final List<String> EXCLUDED_KEYWORDS = List.of("小竹熊","万能材料","新春限定", "扶光踏梦", "秀山", "倚海龙", "蕃红李李·巴蛇", "锦鲤版", "晴", "大美","美加墨BoBo","大美拉萨","粽叶姑娘","邀请","吉祥如意","黄金7月材料补给包");
+    private static final List<String> EXCLUDED_KEYWORDS = List.of("小竹熊","万能材料","新春限定", "扶光踏梦", "倚海龙", "锦鲤版", "晴", "大美澳门","美加墨BoBo","大美福州","粽叶姑娘","邀请","黄金7月材料补给包");
 
     /**
      * Noise markers used to cut off the trailing non-target goods section.
@@ -33,7 +33,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
      */
     @Override
     public List<String> parseCollectionNames(String title, String category, String content) {
-        if (title.contains("公示") || title.contains("关闭求购")) {
+        if (title.contains("公示") || title.contains("关闭求购")||title.contains("假如")) {
             return new LinkedList<>();
         }
         if (category != null && category.contains("寄售公告")) {
@@ -198,11 +198,12 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
             return;
         }
         for (String clause : splitMaterialClauses(materialBlock)) {
-            if (shouldSkipAnyPoolClause(clause, garbageGoods)) {
+            ClauseParseResult clauseParseResult = parseClauseNames(clause, garbageGoods);
+            if (shouldSkipAnyPoolClause(clause, clauseParseResult)) {
                 log.info("【公告内容解析】过滤任意大材料池子句:{}", clause.replace('\n', ' ').trim());
                 continue;
             }
-            extractCollectionNamesToSet(clause, result, garbageGoods);
+            result.addAll(clauseParseResult.names());
         }
     }
 
@@ -235,13 +236,11 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     /**
      * Skips "任意" material clauses when the candidate collection count is too large.
      */
-    private boolean shouldSkipAnyPoolClause(String clause, Set<String> garbageGoods) {
+    private boolean shouldSkipAnyPoolClause(String clause, ClauseParseResult clauseParseResult) {
         if (clause == null || clause.isBlank() || !clause.contains("任意")) {
             return false;
         }
-        LinkedHashSet<String> names = new LinkedHashSet<>();
-        extractCollectionNamesToSet(clause, names, garbageGoods);
-        return names.size() > 2;
+        return clauseParseResult.count() > 2;
     }
 
     /**
@@ -270,12 +269,13 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
             end = minPositive(end, text.indexOf("注：", holdingIndex));
             end = minPositive(end, text.indexOf("注:", holdingIndex));
             String segment = text.substring(holdingIndex, end);
-            if (shouldSkipHoldingClause(segment, garbageGoods)) {
+            ClauseParseResult clauseParseResult = parseClauseNames(segment, garbageGoods);
+            if (shouldSkipHoldingClause(segment, clauseParseResult)) {
                 log.info("【公告内容解析】过滤快照持有大材料池子句:{}", segment.replace('\n', ' ').trim());
                 searchFrom = holdingIndex + 4;
                 continue;
             }
-            extractCollectionNamesToSet(segment, result, garbageGoods);
+            result.addAll(clauseParseResult.names());
             searchFrom = holdingIndex + 4;
         }
     }
@@ -283,13 +283,11 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     /**
      * Skips snapshot holding clauses when the candidate collection count is too large.
      */
-    private boolean shouldSkipHoldingClause(String clause, Set<String> garbageGoods) {
+    private boolean shouldSkipHoldingClause(String clause, ClauseParseResult clauseParseResult) {
         if (clause == null || clause.isBlank()) {
             return false;
         }
-        LinkedHashSet<String> names = new LinkedHashSet<>();
-        extractCollectionNamesToSet(clause, names, garbageGoods);
-        return names.size() > 2;
+        return clauseParseResult.count() > 2;
     }
 
     /**
@@ -326,6 +324,17 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
         if (block == null || block.isBlank() || target == null) {
             return;
         }
+        target.addAll(parseClauseNames(block, garbageGoods).names());
+    }
+
+    /**
+     * Parses all collection names inside a clause in one pass.
+     */
+    private ClauseParseResult parseClauseNames(String block, Set<String> garbageGoods) {
+        LinkedHashSet<String> names = new LinkedHashSet<>();
+        if (block == null || block.isBlank()) {
+            return new ClauseParseResult(names, 0);
+        }
         int searchFrom = 0;
         while (searchFrom < block.length()) {
             int start = block.indexOf('《', searchFrom);
@@ -338,10 +347,11 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
             }
             String name = block.substring(start + 1, end).trim();
             if (!name.isBlank() && !shouldExclude(name) && (garbageGoods == null || !garbageGoods.contains(name))) {
-                target.add(name);
+                names.add(name);
             }
             searchFrom = end + 1;
         }
+        return new ClauseParseResult(names, names.size());
     }
 
     /**
@@ -455,6 +465,12 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
      * Tail parse result containing the truncated main text and tail garbage goods.
      */
     private record TailParseResult(String mainText, Set<String> garbageGoods) {
+    }
+
+    /**
+     * Clause-level parse result used to avoid rescanning the same text.
+     */
+    private record ClauseParseResult(LinkedHashSet<String> names, int count) {
     }
 
 }
