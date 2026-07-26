@@ -83,7 +83,7 @@ public class PendingOrderAutoPayTask {
      * 定时扫描全部账号的待支付订单。
      * 命中购买任务映射且价格校验通过时，进入自动付款入口。
      */
-    @Scheduled(fixedDelay = 20000L, initialDelay = 5000L)
+    @Scheduled(fixedDelay = 10000L, initialDelay = 5000L)
     public void scanPendingOrders() {
         if (!autoPayEnabled) {
             return;
@@ -96,7 +96,7 @@ public class PendingOrderAutoPayTask {
         if (BuyConstant.buyMap.isEmpty() || BuyConstant.picMap.isEmpty()) {
             return;
         }
-        log.info("【待支付自动付款】命中购买任务映射，开始扫描，buyMap:{}, picMapSize:{}", BuyConstant.buyMap, BuyConstant.picMap.size());
+//        log.info("【待支付自动付款】命中购买任务映射，开始扫描，buyMap:{}, picMapSize:{}", BuyConstant.buyMap, BuyConstant.picMap.size());
 
 
         List<IboxAccountEntity> accounts = iboxAccountService.lambdaQuery().orderByAsc(IboxAccountEntity::getId).list();

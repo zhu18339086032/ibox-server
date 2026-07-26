@@ -41,7 +41,7 @@ public class Test {
 
     public static String main2() {
         IboxClient iboxClient = new DefaultIboxClient();
-        IboxApiResponse<AnnouncementRes> detailResponse = iboxClient.get(TokenConstant.TOKEN_3, String.format(UrlConstant.ANNOUNCEMENT_DETAIL_URL, "f10c04c35c4a42d6aa129f389ed93379"), null, AnnouncementRes.class);
+        IboxApiResponse<AnnouncementRes> detailResponse = iboxClient.get(TokenConstant.TOKEN_3, String.format(UrlConstant.ANNOUNCEMENT_DETAIL_URL, "8c25dd1fc64848b5b3627b9b98aecb86"), null, AnnouncementRes.class);
         log.info("【公告详情接口】响应结果:{}", detailResponse.getData().getContent());
         return detailResponse.getData().getContent();
     }
