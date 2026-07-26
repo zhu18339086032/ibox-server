@@ -96,7 +96,7 @@ public class PendingOrderAutoPayTask {
         if (BuyConstant.buyMap.isEmpty() || BuyConstant.picMap.isEmpty()) {
             return;
         }
-        log.info("【待支付自动付款】命中购买任务映射，开始扫描，buyMap:{}, picMapSize:{}", BuyConstant.buyMap, BuyConstant.picMap.size());
+//        log.info("【待支付自动付款】命中购买任务映射，开始扫描，buyMap:{}, picMapSize:{}", BuyConstant.buyMap, BuyConstant.picMap.size());
 
 
         List<IboxAccountEntity> accounts = iboxAccountService.lambdaQuery().orderByAsc(IboxAccountEntity::getId).list();

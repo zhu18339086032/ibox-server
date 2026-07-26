@@ -29,6 +29,11 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     private static final List<String> NOISE_TAIL_KEYWORDS = List.of("本次合成结束", "后续活动区", "凤羽商店");
 
     /**
+     * Markers indicating named collections should be moved into future-area / phoenix-feather pools.
+     */
+    private static final List<String> FUTURE_ZONE_BLOCK_MARKERS = List.of("移入后续区", "移入后续活动区", "移入凤羽商店", "凤羽商店");
+
+    /**
      * Chooses a parse strategy based on announcement category.
      */
     @Override
@@ -157,7 +162,9 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     private List<String> parseMaterialSegmentsOnly(String plainText, Set<String> garbageGoods) {
         LinkedHashSet<String> holdingResult = new LinkedHashSet<>();
         LinkedHashSet<String> materialResult = new LinkedHashSet<>();
-        collectHoldingCollectionNames(plainText, holdingResult, garbageGoods);
+        LinkedHashSet<String> blockedNames = new LinkedHashSet<>();
+        collectFutureZoneBlockedNames(plainText, garbageGoods, blockedNames);
+        collectHoldingCollectionNames(plainText, holdingResult, garbageGoods, blockedNames);
         String truncatedText = plainText;
         int searchFrom = 0;
         while (searchFrom >= 0 && searchFrom < truncatedText.length()) {
@@ -175,14 +182,18 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
                 searchFrom = nextChannelStart < 0 ? truncatedText.length() : nextChannelStart;
                 continue;
             }
-            collectMaterialCollectionNames(materialBlock, materialResult, garbageGoods);
+            collectMaterialCollectionNames(materialBlock, materialResult, garbageGoods, blockedNames);
             searchFrom = nextChannelStart < 0 ? truncatedText.length() : nextChannelStart;
         }
         if (materialResult.isEmpty()) {
             String materialBlock = extractMaterialBlock(truncatedText);
             if (!materialBlock.isBlank()) {
-                collectMaterialCollectionNames(materialBlock, materialResult, garbageGoods);
+                collectMaterialCollectionNames(materialBlock, materialResult, garbageGoods, blockedNames);
             }
+        }
+        if (!blockedNames.isEmpty()) {
+            holdingResult.removeAll(blockedNames);
+            materialResult.removeAll(blockedNames);
         }
         LinkedHashSet<String> result = new LinkedHashSet<>();
         result.addAll(holdingResult);
@@ -191,15 +202,44 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     }
 
     /**
+     * Collects names explicitly marked to move into future-area / phoenix-feather sections.
+     */
+    private void collectFutureZoneBlockedNames(String text, Set<String> garbageGoods, Set<String> blockedNames) {
+        if (text == null || text.isBlank() || blockedNames == null) {
+            return;
+        }
+        for (String rawLine : text.split("\n")) {
+            String line = rawLine == null ? "" : rawLine.trim();
+            if (line.isBlank() || !containsFutureZoneBlockMarker(line)) {
+                continue;
+            }
+            blockedNames.addAll(parseClauseNames(line, garbageGoods, Collections.emptySet()).names());
+        }
+    }
+
+    private boolean containsFutureZoneBlockMarker(String line) {
+        for (String marker : FUTURE_ZONE_BLOCK_MARKERS) {
+            if (line.contains(marker)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Collects material-side collection names and skips large "任意" pools.
      */
-    private void collectMaterialCollectionNames(String materialBlock, LinkedHashSet<String> result, Set<String> garbageGoods) {
+    private void collectMaterialCollectionNames(String materialBlock,
+                                                LinkedHashSet<String> result,
+                                                Set<String> garbageGoods,
+                                                Set<String> blockedNames) {
         if (materialBlock == null || materialBlock.isBlank()) {
             return;
         }
         for (String clause : splitMaterialClauses(materialBlock)) {
-            ClauseParseResult clauseParseResult = parseClauseNames(clause, garbageGoods);
+            ClauseParseResult clauseParseResult = parseClauseNames(clause, garbageGoods, blockedNames);
             if (shouldSkipAnyPoolClause(clause, clauseParseResult)) {
+                blockedNames.addAll(clauseParseResult.names());
                 log.info("【公告内容解析】过滤任意大材料池子句:{}", clause.replace('\n', ' ').trim());
                 continue;
             }
@@ -246,7 +286,10 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     /**
      * Collects only the holding-collection side from snapshot qualification text.
      */
-    private void collectHoldingCollectionNames(String text, LinkedHashSet<String> result, Set<String> garbageGoods) {
+    private void collectHoldingCollectionNames(String text,
+                                               LinkedHashSet<String> result,
+                                               Set<String> garbageGoods,
+                                               Set<String> blockedNames) {
         if (text == null || text.isBlank()) {
             return;
         }
@@ -269,8 +312,9 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
             end = minPositive(end, text.indexOf("注：", holdingIndex));
             end = minPositive(end, text.indexOf("注:", holdingIndex));
             String segment = text.substring(holdingIndex, end);
-            ClauseParseResult clauseParseResult = parseClauseNames(segment, garbageGoods);
+            ClauseParseResult clauseParseResult = parseClauseNames(segment, garbageGoods, blockedNames);
             if (shouldSkipHoldingClause(segment, clauseParseResult)) {
+                blockedNames.addAll(clauseParseResult.names());
                 log.info("【公告内容解析】过滤快照持有大材料池子句:{}", segment.replace('\n', ' ').trim());
                 searchFrom = holdingIndex + 4;
                 continue;
@@ -324,13 +368,13 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
         if (block == null || block.isBlank() || target == null) {
             return;
         }
-        target.addAll(parseClauseNames(block, garbageGoods).names());
+        target.addAll(parseClauseNames(block, garbageGoods, Collections.emptySet()).names());
     }
 
     /**
      * Parses all collection names inside a clause in one pass.
      */
-    private ClauseParseResult parseClauseNames(String block, Set<String> garbageGoods) {
+    private ClauseParseResult parseClauseNames(String block, Set<String> garbageGoods, Set<String> blockedNames) {
         LinkedHashSet<String> names = new LinkedHashSet<>();
         if (block == null || block.isBlank()) {
             return new ClauseParseResult(names, 0);
@@ -346,7 +390,10 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
                 break;
             }
             String name = block.substring(start + 1, end).trim();
-            if (!name.isBlank() && !shouldExclude(name) && (garbageGoods == null || !garbageGoods.contains(name))) {
+            if (!name.isBlank()
+                && !shouldExclude(name)
+                && (garbageGoods == null || !garbageGoods.contains(name))
+                && (blockedNames == null || !blockedNames.contains(name))) {
                 names.add(name);
             }
             searchFrom = end + 1;
@@ -358,11 +405,11 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
      * Checks whether a parsed name should be excluded.
      */
     private boolean shouldExclude(String name) {
-        for (String keyword : EXCLUDED_KEYWORDS) {
-            if (name.contains(keyword)) {
-                return true;
-            }
-        }
+//        for (String keyword : EXCLUDED_KEYWORDS) {
+//            if (name.contains(keyword)) {
+//                return true;
+//            }
+//        }
         return false;
     }
 

@@ -112,9 +112,10 @@ public class IboxMonitorTaskConfigManagerImpl implements IboxMonitorTaskConfigMa
         }
 
         try {
+            List<IboxAccountEntity> accounts = resolveMonitorAccounts(entity);
             boolean started = monitorTaskRuntimeManager.start(entity.getId(), () -> {
                 try {
-                    dispatchExecute(entity);
+                    dispatchExecute(entity, accounts);
                 } catch (Exception ignored) {
                 }
             });
@@ -168,13 +169,13 @@ public class IboxMonitorTaskConfigManagerImpl implements IboxMonitorTaskConfigMa
         return res;
     }
 
-    private void dispatchExecute(IboxMonitorTaskConfigEntity entity) {
+    private void dispatchExecute(IboxMonitorTaskConfigEntity entity, List<IboxAccountEntity> accounts) {
         if ("ANNOUNCEMENT".equalsIgnoreCase(entity.getMonitorType())) {
-            announcementMonitorManager.monitorLatestAnnouncement(entity);
+            announcementMonitorManager.monitorLatestAnnouncement(entity, accounts);
             return;
         }
         if ("RECOMMEND_AREA".equalsIgnoreCase(entity.getMonitorType())) {
-            announcementMonitorManager.monitorRecommendArea(entity);
+            announcementMonitorManager.monitorRecommendArea(entity, accounts);
             return;
         }
         throw new IllegalStateException("暂不支持的监控类型: " + entity.getMonitorType());
@@ -232,5 +233,17 @@ public class IboxMonitorTaskConfigManagerImpl implements IboxMonitorTaskConfigMa
             iboxAccountCache.put(account);
         }
         return account;
+    }
+
+    private List<IboxAccountEntity> resolveMonitorAccounts(IboxMonitorTaskConfigEntity entity) {
+        List<Long> accountIds = parseAccountIds(entity == null ? null : entity.getAccountIds());
+        if (CollectionUtils.isEmpty(accountIds)) {
+            IboxAccountEntity defaultAccount = iboxAccountCache.getDefaultAccount();
+            return defaultAccount == null ? List.of() : List.of(defaultAccount);
+        }
+        return accountIds.stream()
+            .map(this::getAccount)
+            .filter(Objects::nonNull)
+            .toList();
     }
 }

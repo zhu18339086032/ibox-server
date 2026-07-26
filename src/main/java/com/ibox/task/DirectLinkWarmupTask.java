@@ -46,7 +46,7 @@ public class DirectLinkWarmupTask {
      * 这两步都不走代理，从而让默认直连 RestTemplate 的连接池保持热状态。
      * </p>
      */
-    @Scheduled(fixedDelay = 20_000L, initialDelay = 10_000L)
+    @Scheduled(fixedDelay = 10000L, initialDelay = 10_000L)
     public void warmupDirectAnnouncementChain() {
         if (!directWarmupEnabled) {
             return;
@@ -82,7 +82,7 @@ public class DirectLinkWarmupTask {
                     null,
                     AnnouncementRes.class
             );
-            log.info("【直连保热】................................");
+//            log.info("【直连保热】................................");
         } catch (Exception e) {
             log.debug("【直连保热】公告直连链路保热失败", e);
         }
