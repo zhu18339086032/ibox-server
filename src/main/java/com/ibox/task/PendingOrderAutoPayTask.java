@@ -83,7 +83,7 @@ public class PendingOrderAutoPayTask {
      * 定时扫描全部账号的待支付订单。
      * 命中购买任务映射且价格校验通过时，进入自动付款入口。
      */
-    @Scheduled(fixedDelay = 10000L, initialDelay = 5000L)
+    @Scheduled(fixedDelay = 5000L, initialDelay = 5000L)
     public void scanPendingOrders() {
         if (!autoPayEnabled) {
             return;
@@ -138,9 +138,9 @@ public class PendingOrderAutoPayTask {
 
         OrderDetailRes detail = detailResponse.getData();
         String dedupKey = "pending-order-card:" + account.getId() + ":" + safeOrderUuid(firstOrderRes);
-        feishuMessageUtil.sendCard(buildPendingOrderCard(account, firstOrderRes, detail, orders.size()), dedupKey, 3);
-        log.info("【待支付自动付款】获取首个待支付订单，accountId:{}, accountName:{}, orderUuid:{}, collectionName:{}, pendingCount:{}", account.getId(), safeText(account.getAccountName()), safeOrderUuid(firstOrderRes), resolveOrderName(firstOrderRes, detail), orders.size());
-//        processOrder(account, firstOrderRes);
+//        feishuMessageUtil.sendCard(buildPendingOrderCard(account, firstOrderRes, detail, orders.size()), dedupKey, 3);
+//        log.info("【待支付自动付款】获取首个待支付订单，accountId:{}, accountName:{}, orderUuid:{}, collectionName:{}, pendingCount:{}", account.getId(), safeText(account.getAccountName()), safeOrderUuid(firstOrderRes), resolveOrderName(firstOrderRes, detail), orders.size());
+        processOrder(account, firstOrderRes);
     }
 
     /**

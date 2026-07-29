@@ -315,7 +315,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
             }
         } finally {
             if (requestSucceeded) {
-                sleepQuietly(1000L);
+                sleepQuietly(300L);
             }
         }
     }
@@ -386,7 +386,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
             return priceLimit;
         }
         if (entity != null && entity.getFloorPrice() != null && entity.getFloorPrice().compareTo(BigDecimal.ZERO) > 0) {
-            return entity.getFloorPrice().multiply(new BigDecimal("2"));
+            return entity.getFloorPrice().multiply(new BigDecimal("1.7"));
         }
         return BigDecimal.ZERO;
     }

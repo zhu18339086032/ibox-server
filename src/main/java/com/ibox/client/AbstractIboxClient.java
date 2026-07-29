@@ -53,7 +53,7 @@ public abstract class AbstractIboxClient implements IboxClient {
     /**
      * Request timeout in milliseconds.
      */
-    private static final int REQUEST_TIMEOUT_MILLIS = 150;
+    private static final int REQUEST_TIMEOUT_MILLIS = 250;
 
     /**
      * Default direct RestTemplate.
@@ -226,6 +226,7 @@ public abstract class AbstractIboxClient implements IboxClient {
         try {
             RestTemplate executeTemplate = buildRestTemplate(proxyInfo);
             ResponseEntity<String> responseEntity = executeTemplate.exchange(uri, method, entity, String.class);
+//            log.info("成功...............................");
             return responseEntity.getBody() == null ? "" : responseEntity.getBody();
         } catch (RestClientException e) {
 //            if (e.getMessage().contains("429") && proxyInfo != null) {
