@@ -21,7 +21,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     /**
      * Keywords that should be excluded from parse results.
      */
-    private static final List<String> EXCLUDED_KEYWORDS = List.of("小竹熊","万能材料","新春限定", "扶光踏梦", "倚海龙", "锦鲤版", "晴", "大美澳门","美加墨BoBo","大美福州","粽叶姑娘","邀请","黄金7月材料补给包");
+    private static final List<String> EXCLUDED_KEYWORDS = List.of("一壶春（锦鲤版）");
 
     /**
      * Noise markers used to cut off the trailing non-target goods section.
@@ -405,11 +405,11 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
      * Checks whether a parsed name should be excluded.
      */
     private boolean shouldExclude(String name) {
-//        for (String keyword : EXCLUDED_KEYWORDS) {
-//            if (name.contains(keyword)) {
-//                return true;
-//            }
-//        }
+        for (String keyword : EXCLUDED_KEYWORDS) {
+            if (name.contains(keyword)) {
+                return true;
+            }
+        }
         return false;
     }
 

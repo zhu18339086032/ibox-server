@@ -178,23 +178,11 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
             log.warn("【公告监控】未生成可执行的账号商品分配, taskId:{}, accounts:{}, candidates:{}", config == null ? null : config.getId(), availableAccounts.size(), candidates.size());
             return;
         }
-        AnnouncementPurchaseAssignment firstAssignment = assignments.getFirst();
         List<Future<Boolean>> futures = new ArrayList<>();
-        for (int index = 1; index < assignments.size(); index++) {
-            AnnouncementPurchaseAssignment assignment = assignments.get(index);
-            futures.add(announcementPurchaseExecutor.submit(new Callable<>() {
-                @Override
-                public Boolean call() {
-                    return tryPurchaseCandidate(assignment.account(), latest, assignment.candidate(), assignment.request());
-                }
-            }));
+        for (AnnouncementPurchaseAssignment assignment : assignments) {
+            futures.add(announcementPurchaseExecutor.submit(() -> tryPurchaseCandidate(assignment.account(), latest, assignment.candidate(), assignment.request())));
         }
-
         int successCount = 0;
-        if (tryPurchaseCandidate(firstAssignment.account(), latest, firstAssignment.candidate(), firstAssignment.request())) {
-            successCount++;
-        }
-
         for (Future<Boolean> future : futures) {
             try {
                 if (Boolean.TRUE.equals(future.get())) {
