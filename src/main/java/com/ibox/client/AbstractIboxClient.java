@@ -197,6 +197,7 @@ public abstract class AbstractIboxClient implements IboxClient {
         headers.set("Origin", "https://www.ibox.art");
         headers.set("Referer", "https://www.ibox.art/");
         headers.set("X-Requested-With", "com.ibox.app");
+        headers.set("device-id", " dev_2f2958"+UUID.randomUUID());
         headers.set("X-Request-Id", UUID.randomUUID().toString().replace("-", ""));
         if (token != null && !token.isBlank()) {
             headers.setBearerAuth(token.replaceFirst("^Bearer\\s+", ""));

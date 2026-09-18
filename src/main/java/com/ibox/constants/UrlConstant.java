@@ -38,7 +38,6 @@ public class UrlConstant {
      * GET https://sail-api.ibox.art/public-service/markets?sortType=0&pageNo={pageNo}&segmentId=-1&sortField=2&pageSize={pageSize}&timeRange=0
      */
     public static final String MARKET_COLLECTION_LIST_URL = SAIL_API_BASE_URL + "/public-service/markets?sortType=0&pageNo=%s&segmentId=%s&sortField=2&pageSize=%s&timeRange=0";
-
     /**
      * 寄售订单列表接口
      * GET /public-market-service/digital-collection-groups/{groupId}/consignment-orders?pageNo={pageNo}&pageSize={pageSize}&sortType={sortType}&sortField={sortField}&uid={uid}

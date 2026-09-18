@@ -21,7 +21,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     /**
      * Keywords that should be excluded from parse results.
      */
-    private static final List<String> EXCLUDED_KEYWORDS = List.of("一壶春（锦鲤版）");
+    private static final List<String> EXCLUDED_KEYWORDS = List.of("一壶春（锦鲤版）","碧霄争锋");
 
     /**
      * Noise markers used to cut off the trailing non-target goods section.
@@ -33,13 +33,18 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
      */
     private static final List<String> FUTURE_ZONE_BLOCK_MARKERS = List.of("移入后续区", "移入后续活动区", "移入凤羽商店", "凤羽商店");
 
+    private static final List<String> FILTER_TITLE_LIST = List.of("公示", "补充", "活动延长", "关闭求购", "《西游-鲤鱼》全民活动来袭", "获取藏品《国风·一路牛》&《秀山》活动来袭","全民快乐加倍");
+
     /**
      * Chooses a parse strategy based on announcement category.
      */
     @Override
     public List<String> parseCollectionNames(String title, String category, String content) {
-        if (title.contains("公示") || title.contains("关闭求购")||title.contains("假如")) {
-            return new LinkedList<>();
+        for (String filterTitle : FILTER_TITLE_LIST) {
+            if (title.contains(filterTitle)){
+                log.info("过滤公告======================》" + title);
+                return new LinkedList<>();
+            }
         }
         if (category != null && category.contains("寄售公告")) {
             LinkedHashSet<String> names = new LinkedHashSet<>();
@@ -280,7 +285,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
         if (clause == null || clause.isBlank() || !clause.contains("任意")) {
             return false;
         }
-        return clauseParseResult.count() > 2;
+        return clauseParseResult.count() > 3;
     }
 
     /**
@@ -331,7 +336,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
         if (clause == null || clause.isBlank()) {
             return false;
         }
-        return clauseParseResult.count() > 2;
+        return clauseParseResult.count() > 3;
     }
 
     /**
@@ -391,9 +396,9 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
             }
             String name = block.substring(start + 1, end).trim();
             if (!name.isBlank()
-                && !shouldExclude(name)
-                && (garbageGoods == null || !garbageGoods.contains(name))
-                && (blockedNames == null || !blockedNames.contains(name))) {
+                    && !shouldExclude(name)
+                    && (garbageGoods == null || !garbageGoods.contains(name))
+                    && (blockedNames == null || !blockedNames.contains(name))) {
                 names.add(name);
             }
             searchFrom = end + 1;

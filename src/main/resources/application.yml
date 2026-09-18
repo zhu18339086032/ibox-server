@@ -32,9 +32,13 @@ ibox:
     api-url: http://api.xiequ.cn/VAD/GetIp.aspx?act=get&uid=111218&vkey=F5D2A524D56908B52DBA7A33D7E4F938&num=1&time=30&plat=1&re=0&type=0&so=1&ow=1&spl=1&addr=&db=1
     config-proxies:
       - local
+      - 125.122.159.15:1287:yfvi17m3:yfvi17m3
+      - 115.238.144.152:1181:yfvi17m2:yfvi17m2
+      - 36.134.52.120:6833:yfvi17m1:yfvi17m1
       - 125.122.37.143:9198:eqvc18c9:eqvc18c9
       - 115.231.191.204:9518:eqvc18c8:eqvc18c8
       - 36.134.52.91:2881:eqvc18c7:eqvc18c7
+      - local
       - 115.238.144.120:3313:eqvc18c6:eqvc18c6
       - 125.124.254.44:2222:eqvc18c5:eqvc18c5
       - 112.16.235.243:2111:eqvc18c3:eqvc18c3
@@ -45,7 +49,6 @@ ibox:
       - 39.175.163.14:1077:txny16j8:txny16j8
       - 60.190.31.246:5477:txny16j7:txny16j7
       - 116.148.227.115:3598:txny16j6:txny16j6
-      - 112.15.255.76:2221:txny16j5:txny16j5
       - 122.228.9.247:8787:txny16j4:txny16j4
       - 115.223.47.134:5151:txny16j3:txny16j3
       - local
@@ -54,14 +57,11 @@ ibox:
       - 115.231.37.136:6522:wkut14v4:wkut14v4
       - 125.122.37.149:1287:wkut14v3:wkut14v3
       - 125.122.159.118:2535:wkut14v2:wkut14v2
-      - 115.231.43.78:1212:wkut14v1:wkut14v1
       - local
+      - 115.231.43.78:1212:wkut14v1:wkut14v1
       - 36.213.44.197:6685:amrl13o1:amrl13o1
-      - 61.172.169.94:8525:sjtx12o1:sjtx12o1
-      - 101.71.8.77:6352:xhci12s1:xhci12s1
-      - 36.134.52.120:6833:yfvi17m1:yfvi17m1
-      - 115.238.144.152:1181:yfvi17m2:yfvi17m2
-      - 125.122.159.15:1287:yfvi17m3:yfvi17m3
+      - 36.213.44.197:6685:amrl13o1:amrl13o1
+      - 36.213.44.197:6685:amrl13o1:amrl13o1
 server:
   port: 8080
 

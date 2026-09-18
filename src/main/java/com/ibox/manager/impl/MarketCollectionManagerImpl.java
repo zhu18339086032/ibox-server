@@ -16,6 +16,7 @@ import com.ibox.model.res.ibox.MarketCollectionRes;
 import com.ibox.model.res.web.MarketCollectionListRes;
 import com.ibox.model.res.web.PageResponse;
 import com.ibox.service.MarketCollectionService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,7 @@ import java.util.Set;
 /**
  * 市场藏品服务实现类
  */
+@Slf4j
 @Service
 public class MarketCollectionManagerImpl implements MarketCollectionManager {
 
@@ -74,7 +76,7 @@ public class MarketCollectionManagerImpl implements MarketCollectionManager {
 
         List<MarketCollectionEntity> totalList = new ArrayList<>();
         // https://sail-api.ibox.art/public-service/markets/segments?timeRange=0&pageNo=1&pageSize=-1
-        List<Integer> segmentIdList = Arrays.asList(97, 96, 89, 94, 92, 87, 83, 86, 84, 54, 39, 93,102);
+        List<Integer> segmentIdList = Arrays.asList(96, 92, 89, 86, 83, 87, 54, 84);
         for (Integer segmentId : segmentIdList) {
             int pageNo = 1;
             int pageSize = 50;
@@ -85,6 +87,7 @@ public class MarketCollectionManagerImpl implements MarketCollectionManager {
                 try {
                     Thread.sleep(300);
                 } catch (InterruptedException e) {
+                    log.info("异常",e);
                     throw new RuntimeException(e);
                 }
                 if (response == null || response.getData() == null || response.getData().getList() == null || response.getData().getList().isEmpty()) {
@@ -102,7 +105,6 @@ public class MarketCollectionManagerImpl implements MarketCollectionManager {
         }
 
         if (totalList.isEmpty()) {
-            marketCollectionCache.refresh(totalList);
             return 0;
         }
 
