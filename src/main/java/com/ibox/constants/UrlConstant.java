@@ -105,25 +105,25 @@ public class UrlConstant {
      * 活动合成列表接口
      * GET https://sail-api.ibox.art/synthesis-service/synthetic/activity/list?pageNo={pageNo}&pageSize={pageSize}
      */
-    public static final String SYNTHETIC_ACTIVITY_LIST_URL = SAIL_API_BASE_URL + "/synthesis-service/synthetic/activity/list?pageNo=%s&pageSize=%s";
+    public static final String SYNTHETIC_ACTIVITY_LIST_URL = SAIL_API_BASE_URL + "/ibox-synthesis-service-go/synthetic/activity/list?pageNo=%s&pageSize=%s";
 
     /**
      * 活动详情接口
      * GET https://sail-api.ibox.art/synthesis-service/synthetic/activity/detail?id={activityId}
      */
-    public static final String SYNTHETIC_ACTIVITY_DETAIL_URL = SAIL_API_BASE_URL + "/synthesis-service/synthetic/activity/detail?id=%s";
+    public static final String SYNTHETIC_ACTIVITY_DETAIL_URL = SAIL_API_BASE_URL + "/ibox-synthesis-service-go/synthetic/activity/detail?id=%s";
 
     /**
      * 合成中心详情接口
      * GET https://sail-api.ibox.art/synthesis-service/synthetic/center/%s
      */
-    public static final String SYNTHETIC_CENTER_DETAIL_URL = SAIL_API_BASE_URL + "/synthesis-service/synthetic/center/%s";
+    public static final String SYNTHETIC_CENTER_DETAIL_URL = SAIL_API_BASE_URL + "/ibox-synthesis-service-go/synthetic/center/%s";
 
     /**
      * 合成确认接口
      * POST https://sail-api.ibox.art/synthesis-service/synthetic/center/confirm?uid={uid}
      */
-    public static final String SYNTHETIC_CONFIRM_URL = SAIL_API_BASE_URL + "/synthesis-service/synthetic/center/confirm?uid=%s";
+    public static final String SYNTHETIC_CONFIRM_URL = SAIL_API_BASE_URL + "/ibox-synthesis-service-go/synthetic/center/confirm?uid=%s";
 
     private UrlConstant() {
     }
