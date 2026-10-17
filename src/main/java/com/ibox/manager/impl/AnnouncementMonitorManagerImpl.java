@@ -144,10 +144,10 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
             announcementStateCache.setLatestAnnouncementId(latest.getId());
             return;
         }
+//        log.info("【公告列表】公告UUID:{}, 标题:{}, 分类:{}", latest.getUuid(), latest.getTitle(), latest.getCategory() == null ? null : latest.getCategory().getName());
         if (latest.getId().equals(cachedLatestId)) {
             return;
         }
-//        log.info("【公告列表】公告UUID:{}, 标题:{}, 分类:{}", latest.getUuid(), latest.getTitle(), latest.getCategory() == null ? null : latest.getCategory().getName());
         announcementStateCache.setLatestAnnouncementId(latest.getId());
 
         String categoryName = latest.getCategory() == null ? null : latest.getCategory().getName();
@@ -410,7 +410,7 @@ public class AnnouncementMonitorManagerImpl implements AnnouncementMonitorManage
      * 调用 iBox 批量购买接口提交下单请求。
      */
     private IboxApiResponse<Map<String, Object>> submitBatchPurchase(IboxAccountEntity account, BatchPurchaseConsignmentOrdersReq req) {
-        return iboxClient.post(account.getBearerToken(), String.format(UrlConstant.BATCH_PURCHASE_CONSIGNMENT_ORDER_URL, account.getIboxUid()), req, new TypeReference<>() {
+        return iboxClient.post(account.getBearerToken(), String.format(UrlConstant.BATCH_PURCHASE_CONSIGNMENT_ORDER_URL), req, new TypeReference<>() {
         });
     }
 

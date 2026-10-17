@@ -1,10 +1,15 @@
 package com.ibox.task;
 
+import com.ibox.common.MarketCollectionCache;
+import com.ibox.entity.MarketCollectionEntity;
 import com.ibox.manager.MarketCollectionManager;
+import com.ibox.service.MarketCollectionService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
 
 /**
  * Periodically refreshes market collection cache and persisted market data.
@@ -15,6 +20,12 @@ public class MarketCollectionRefreshTask {
 
     @Autowired
     private MarketCollectionManager marketCollectionManager;
+
+    /**
+     * 市场藏品服务
+     */
+    @Autowired
+    private MarketCollectionService marketCollectionService;
 
     /**
      * Refreshes market collection data every 10 minutes.
@@ -28,4 +39,18 @@ public class MarketCollectionRefreshTask {
             log.warn("【市场藏品定时刷新】刷新失败", e);
         }
     }
+
+
+    @Scheduled(fixedDelay = 10000)
+    public void loadMarketCollectionCache() {
+        List<MarketCollectionEntity> list = marketCollectionService.listMarketCollection();
+        marketCollectionCache.refresh(list);
+        log.info("【启动预热】市场藏品缓存加载完成，数量:{}", list.size());
+    }
+
+    /**
+     * 市场藏品缓存
+     */
+    @Autowired
+    private MarketCollectionCache marketCollectionCache;
 }

@@ -472,7 +472,7 @@ public class PurchaseTaskManagerImpl implements PurchaseTaskManager {
         IboxApiResponse<Map<String, Object>> purchaseResponse;
         ProxyInfo nextConfigProxy = iboxProxyService.getNextConfigProxy();
         try {
-            purchaseResponse = iboxClient.post(account.getBearerToken(), String.format(UrlConstant.BATCH_PURCHASE_CONSIGNMENT_ORDER_URL, account.getIboxUid()), req, new TypeReference<>() {
+            purchaseResponse = iboxClient.post(account.getBearerToken(), String.format(UrlConstant.BATCH_PURCHASE_CONSIGNMENT_ORDER_URL), req, new TypeReference<>() {
             }, nextConfigProxy);
         } catch (Exception e) {
             log.warn("【批量购买任务】请求异常，不计入有效请求，taskId:{}, accountId:{}, collectionId:{}", task.getId(), account.getId(), task.getDigitalCollectionGroupId(), e);

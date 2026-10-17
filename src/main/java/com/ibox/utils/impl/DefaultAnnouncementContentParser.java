@@ -21,7 +21,7 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     /**
      * Keywords that should be excluded from parse results.
      */
-    private static final List<String> EXCLUDED_KEYWORDS = List.of("一壶春（锦鲤版）","碧霄争锋");
+    private static final List<String> EXCLUDED_KEYWORDS = List.of("一壶春（锦鲤版）","碧霄争锋","申公豹寻宝");
 
     /**
      * Noise markers used to cut off the trailing non-target goods section.

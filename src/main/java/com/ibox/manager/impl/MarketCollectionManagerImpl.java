@@ -117,7 +117,7 @@ public class MarketCollectionManagerImpl implements MarketCollectionManager {
 
         marketCollectionService.saveOrUpdateMarketCollections(totalList);
         marketCollectionService.markMissingAsDeleted(currentIds);
-        marketCollectionCache.refresh(totalList);
+//        marketCollectionCache.refresh(totalList);
         return totalList.size();
     }
 
