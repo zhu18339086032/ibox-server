@@ -74,12 +74,12 @@ public class MarketCollectionManagerImpl implements MarketCollectionManager {
 
         List<MarketCollectionEntity> totalList = new ArrayList<>();
         // https://sail-api.ibox.art/public-service/markets/segments?timeRange=0&pageNo=1&pageSize=-1
-        List<Integer> segmentIdList = Arrays.asList(97, 96, 89, 94, 92, 87, 83, 86, 84, 54, 39, 93,102);
+        List<Integer> segmentIdList = Arrays.asList(96, 86, 89, 83, 54, 103);
         for (Integer segmentId : segmentIdList) {
             int pageNo = 1;
             int pageSize = 50;
             while (true) {
-                String url = String.format(UrlConstant.MARKET_COLLECTION_LIST_URL, pageNo, segmentId, pageSize);
+                String url = String.format(UrlConstant.MARKET_COLLECTION_LIST_URL, pageNo, pageSize, segmentId);
                 IboxApiResponse<com.ibox.model.res.ibox.MarketCollectionListRes> response =
                         iboxClient.get(account.getBearerToken(), url, null, com.ibox.model.res.ibox.MarketCollectionListRes.class);
                 try {

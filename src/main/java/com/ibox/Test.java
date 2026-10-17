@@ -1,15 +1,12 @@
 package com.ibox;
 
-import com.alibaba.fastjson.JSONObject;
 import com.ibox.client.IboxClient;
 import com.ibox.client.impl.DefaultIboxClient;
 import com.ibox.constants.TokenConstant;
 import com.ibox.constants.UrlConstant;
 import com.ibox.model.res.ibox.AnnouncementRes;
 import com.ibox.model.res.ibox.ConsignmentOrderListRes;
-import com.ibox.model.res.ibox.ConsignmentOrderRes;
 import com.ibox.model.res.ibox.IboxApiResponse;
-import com.ibox.model.res.ibox.MarketCollectionListRes;
 import com.ibox.utils.AnnouncementContentParser;
 import com.ibox.utils.impl.DefaultAnnouncementContentParser;
 import lombok.extern.slf4j.Slf4j;
@@ -19,25 +16,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Stream;
 
 @Slf4j
 public class Test {
 
-    public static void main1(String[] args) {
-        IboxClient iboxClient = new DefaultIboxClient();
-        String format = String.format(UrlConstant.MARKET_COLLECTION_LIST_URL, 1, 50);
-        IboxApiResponse<MarketCollectionListRes> response = iboxClient.get(TokenConstant.TOKEN_3, format, new HashMap<>(), MarketCollectionListRes.class);
-        log.info("【账户列表接口】响应结果:{}", JSONObject.toJSONString(response));
-
-        if (response != null && response.getData() != null) {
-            MarketCollectionListRes listRes = response.getData();
-            log.info("总数:{}, 是否有更多:{}", listRes.getTotal(), listRes.getHasMore());
-            log.info("藏品列表:{}", JSONObject.toJSONString(listRes.getList()));
-        }
-    }
 
     public static String main2() {
         IboxClient iboxClient = new DefaultIboxClient();
