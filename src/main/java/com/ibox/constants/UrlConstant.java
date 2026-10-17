@@ -40,6 +40,13 @@ public class UrlConstant {
     public static final String MARKET_COLLECTION_LIST_URL = SAIL_API_BASE_URL + "/public-service/v2/markets?pageNo=%s&pageSize=%s&sortField=volume&sort=desc&timeRange=3&segmentId=%s";
 
     /**
+     * 合集内商品列表接口。
+     * GET /public-service/v2/markets/collections/{collectionId}/albums?timeRange=3&focusFilter=UNFOCUSED&pageNo={pageNo}&pageSize={pageSize}
+     */
+    public static final String MARKET_COLLECTION_ALBUM_LIST_URL = SAIL_API_BASE_URL
+            + "/public-service/v2/markets/collections/%s/albums?timeRange=%s&focusFilter=%s&pageNo=%s&pageSize=%s";
+
+    /**
      * 寄售订单列表接口
      * GET /public-market-service/digital-collection-groups/{groupId}/consignment-orders?pageNo={pageNo}&pageSize={pageSize}&sortType={sortType}&sortField={sortField}&uid={uid}
      */

@@ -21,10 +21,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -72,7 +73,9 @@ public class MarketCollectionManagerImpl implements MarketCollectionManager {
             throw new IllegalStateException("账户列表中不存在可用token");
         }
 
-        List<MarketCollectionEntity> totalList = new ArrayList<>();
+        // 以商品 ID 去重：不同分类或不同合集展开结果可能包含同一商品。
+        Map<Long, MarketCollectionRes> itemMap = new LinkedHashMap<>();
+        Set<Long> expandedCollectionIds = new LinkedHashSet<>();
         // https://sail-api.ibox.art/public-service/markets/segments?timeRange=0&pageNo=1&pageSize=-1
         List<Integer> segmentIdList = Arrays.asList(96, 86, 89, 83, 54, 103);
         for (Integer segmentId : segmentIdList) {
@@ -82,25 +85,34 @@ public class MarketCollectionManagerImpl implements MarketCollectionManager {
                 String url = String.format(UrlConstant.MARKET_COLLECTION_LIST_URL, pageNo, pageSize, segmentId);
                 IboxApiResponse<com.ibox.model.res.ibox.MarketCollectionListRes> response =
                         iboxClient.get(account.getBearerToken(), url, null, com.ibox.model.res.ibox.MarketCollectionListRes.class);
-                try {
-                    Thread.sleep(300);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-                if (response == null || response.getData() == null || response.getData().getList() == null || response.getData().getList().isEmpty()) {
+                validateResponse(response, url);
+                if (response.getData().getList() == null || response.getData().getList().isEmpty()) {
                     break;
                 }
 
-                List<MarketCollectionEntity> currentList = response.getData().getList().stream().map(this::buildEntity).toList();
-                totalList.addAll(currentList);
+                for (MarketCollectionRes item : response.getData().getList()) {
+                    if (item == null || item.getId() == null) {
+                        continue;
+                    }
+                    if ("collection".equalsIgnoreCase(item.getItemType())) {
+                        if (expandedCollectionIds.add(item.getId())) {
+                            collectCollectionAlbums(account.getBearerToken(), item.getId(), itemMap);
+                        }
+                    } else {
+                        // 兼容旧接口没有 itemType 的情况，默认按商品处理。
+                        itemMap.put(item.getId(), item);
+                    }
+                }
 
                 if (!Boolean.TRUE.equals(response.getData().getHasMore())) {
                     break;
                 }
                 pageNo++;
+                sleepBetweenRequests();
             }
         }
 
+        List<MarketCollectionEntity> totalList = itemMap.values().stream().map(this::buildEntity).toList();
         if (totalList.isEmpty()) {
             marketCollectionCache.refresh(totalList);
             return 0;
@@ -119,6 +131,53 @@ public class MarketCollectionManagerImpl implements MarketCollectionManager {
         return totalList.size();
     }
 
+    /**
+     * 拉取一个合集下的全部商品，并加入本次刷新快照。
+     */
+    private void collectCollectionAlbums(String token, Long collectionId, Map<Long, MarketCollectionRes> itemMap) {
+        int pageNo = 1;
+        int pageSize = 20;
+        while (true) {
+            String url = String.format(UrlConstant.MARKET_COLLECTION_ALBUM_LIST_URL,
+                    collectionId, 3, "UNFOCUSED", pageNo, pageSize);
+            IboxApiResponse<com.ibox.model.res.ibox.MarketCollectionListRes> response =
+                    iboxClient.get(token, url, null, com.ibox.model.res.ibox.MarketCollectionListRes.class);
+            validateResponse(response, url);
+            if (response.getData().getList() == null || response.getData().getList().isEmpty()) {
+                return;
+            }
+            for (MarketCollectionRes album : response.getData().getList()) {
+                if (album == null || album.getId() == null) {
+                    continue;
+                }
+                // 合集接口当前应只返回 album；即使服务端未来混入 collection，也不把容器当商品入库。
+                if (!"collection".equalsIgnoreCase(album.getItemType())) {
+                    itemMap.put(album.getId(), album);
+                }
+            }
+            if (!Boolean.TRUE.equals(response.getData().getHasMore())) {
+                return;
+            }
+            pageNo++;
+            sleepBetweenRequests();
+        }
+    }
+
+    private void validateResponse(IboxApiResponse<?> response, String url) {
+        if (response == null || !Integer.valueOf(0).equals(response.getCode()) || response.getData() == null) {
+            throw new IllegalStateException("刷新市场数据失败，接口响应无效: " + url);
+        }
+    }
+
+    private void sleepBetweenRequests() {
+        try {
+            Thread.sleep(300);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("刷新市场数据被中断", e);
+        }
+    }
+
     private MarketCollectionListRes buildListRes(MarketCollectionEntity entity) {
         MarketCollectionListRes res = new MarketCollectionListRes();
         BeanUtils.copyProperties(entity, res);
@@ -128,6 +187,13 @@ public class MarketCollectionManagerImpl implements MarketCollectionManager {
     private MarketCollectionEntity buildEntity(MarketCollectionRes res) {
         MarketCollectionEntity entity = new MarketCollectionEntity();
         BeanUtils.copyProperties(res, entity);
+        if (res.getFocused() != null) {
+            entity.setFocus(res.getFocused() ? 1 : 0);
+        }
+        // 新接口没有 status，市场快照中的商品均视为有效。
+        if (entity.getStatus() == null) {
+            entity.setStatus(1);
+        }
         return entity;
     }
 

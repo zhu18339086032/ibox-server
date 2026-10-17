@@ -19,6 +19,8 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -185,19 +187,80 @@ public class Category101NewCollectionPurchaseTask {
      */
     private List<MarketCollectionRes> fetchCategoryCollectionsWithProxy() {
         try {
-            String url = String.format(UrlConstant.MARKET_COLLECTION_LIST_URL, PAGE_NO, TARGET_SEGMENT_ID, PAGE_SIZE);
             ProxyInfo proxyInfo = iboxProxyService.getNextConfigProxy();
-            IboxApiResponse<MarketCollectionListRes> response = iboxClient.get("", url, null, new TypeReference<>() {
-            }, proxyInfo);
-            if (response == null || response.getData() == null || response.getData().getList() == null) {
-                log.warn("【分类101新品监听】获取商品列表失败，response:{}", response);
-                return List.of();
+            Map<Long, MarketCollectionRes> itemMap = new LinkedHashMap<>();
+            Set<Long> expandedCollectionIds = new LinkedHashSet<>();
+            int pageNo = PAGE_NO;
+            while (true) {
+                // MARKET_COLLECTION_LIST_URL 的参数顺序是 pageNo、pageSize、segmentId。
+                String url = String.format(UrlConstant.MARKET_COLLECTION_LIST_URL, pageNo, PAGE_SIZE, TARGET_SEGMENT_ID);
+                IboxApiResponse<MarketCollectionListRes> response = iboxClient.get("", url, null, new TypeReference<>() {
+                }, proxyInfo);
+                if (!isValidMarketResponse(response)) {
+                    log.warn("【分类101新品监听】获取商品列表失败，url:{}, response:{}", url, response);
+                    return List.of();
+                }
+                List<MarketCollectionRes> pageItems = response.getData().getList();
+                if (pageItems == null || pageItems.isEmpty()) {
+                    break;
+                }
+                for (MarketCollectionRes item : pageItems) {
+                    if (item == null || item.getId() == null) {
+                        continue;
+                    }
+                    if ("collection".equalsIgnoreCase(item.getItemType())) {
+                        if (expandedCollectionIds.add(item.getId())) {
+                            collectCategoryAlbums(item.getId(), proxyInfo, itemMap);
+                        }
+                    } else {
+                        itemMap.put(item.getId(), item);
+                    }
+                }
+                if (!Boolean.TRUE.equals(response.getData().getHasMore())) {
+                    break;
+                }
+                pageNo++;
             }
-            return response.getData().getList();
+            return new ArrayList<>(itemMap.values());
         } catch (Exception e) {
             log.error("【分类101新品监听】拉取分类商品异常", e);
             return List.of();
         }
+    }
+
+    /**
+     * 拉取分类结果中的合集商品，并按商品 ID 去重。
+     */
+    private void collectCategoryAlbums(Long collectionId, ProxyInfo proxyInfo, Map<Long, MarketCollectionRes> itemMap) {
+        int pageNo = 1;
+        while (true) {
+            String url = String.format(UrlConstant.MARKET_COLLECTION_ALBUM_LIST_URL,
+                    collectionId, 3, "UNFOCUSED", pageNo, PAGE_SIZE);
+            IboxApiResponse<MarketCollectionListRes> response = iboxClient.get("", url, null, new TypeReference<>() {
+            }, proxyInfo);
+            if (!isValidMarketResponse(response)) {
+                throw new IllegalStateException("合集商品接口响应无效: " + url);
+            }
+            List<MarketCollectionRes> albums = response.getData().getList();
+            if (albums == null || albums.isEmpty()) {
+                return;
+            }
+            for (MarketCollectionRes album : albums) {
+                if (album != null && album.getId() != null && !"collection".equalsIgnoreCase(album.getItemType())) {
+                    itemMap.put(album.getId(), album);
+                }
+            }
+            if (!Boolean.TRUE.equals(response.getData().getHasMore())) {
+                return;
+            }
+            pageNo++;
+        }
+    }
+
+    private boolean isValidMarketResponse(IboxApiResponse<MarketCollectionListRes> response) {
+        return response != null
+                && Integer.valueOf(0).equals(response.getCode())
+                && response.getData() != null;
     }
 
     /**
