@@ -293,7 +293,7 @@ public class Category101NewCollectionPurchaseTask {
 
             IboxApiResponse<Map<String, Object>> response = iboxClient.post(
                 account.getBearerToken(),
-                String.format(UrlConstant.BATCH_PURCHASE_CONSIGNMENT_ORDER_URL, account.getIboxUid()),
+                String.format(UrlConstant.BATCH_PURCHASE_CONSIGNMENT_ORDER_URL),
                 req,
                 new TypeReference<>() {
                 }

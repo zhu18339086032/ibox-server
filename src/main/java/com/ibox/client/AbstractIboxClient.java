@@ -197,6 +197,7 @@ public abstract class AbstractIboxClient implements IboxClient {
         headers.set("Origin", "https://www.ibox.art");
         headers.set("Referer", "https://www.ibox.art/");
         headers.set("X-Requested-With", "com.ibox.app");
+        headers.set("device-id", " dev_2f2958"+UUID.randomUUID());
         headers.set("X-Request-Id", UUID.randomUUID().toString().replace("-", ""));
         if (token != null && !token.isBlank()) {
             headers.setBearerAuth(token.replaceFirst("^Bearer\\s+", ""));
@@ -238,6 +239,7 @@ public abstract class AbstractIboxClient implements IboxClient {
 //                    log.info("【iBox客户端】解析iBox接口响应失败:{}", proxyInfo.getHost());
 //                }
 //            }
+//            log.info("【iBox客户端】请求iBox接口失败:【429】{}|{}|{}", proxyInfo.getHost(), proxyInfo.getUsername(), e.getMessage());
             return "";
         }
     }
