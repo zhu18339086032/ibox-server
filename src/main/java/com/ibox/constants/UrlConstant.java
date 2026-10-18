@@ -76,7 +76,7 @@ public class UrlConstant {
      * 创建批量寄售订单接口
      * POST https://sail-api.ibox.art/order-create-service/batch-purchase-consignment-orders?uid={uid}
      */
-    public static final String BATCH_PURCHASE_CONSIGNMENT_ORDER_URL = SAIL_API_BASE_URL + "/order-create-service/batch-purchase-consignment-orders?uid=%s";
+    public static final String BATCH_PURCHASE_CONSIGNMENT_ORDER_URL = SAIL_API_BASE_URL + "/order-create-service/batch-purchase-consignment-orders";
 
     /**
      * 订单详情接口
