@@ -10,6 +10,9 @@ public class UrlConstant {
      */
     public static final String SAIL_API_BASE_URL = "https://sail-api.ibox.art";
 
+    /** iBox手机验证码登录接口。 */
+    public static final String LOGIN_VERIFY_URL = SAIL_API_BASE_URL + "/box-server/api/v1/login/verify";
+
     /**
      * 飞书机器人基础地址。
      */

@@ -51,6 +51,24 @@ public class IboxAccountEntity extends BaseEntity {
     private String bearerToken;
 
     /**
+     * iBox刷新令牌
+     */
+    @TableField("refresh_token")
+    private String refreshToken;
+
+    /**
+     * 访问令牌过期时间（毫秒时间戳）
+     */
+    @TableField("token_expired_at")
+    private Long tokenExpiredAt;
+
+    /**
+     * 刷新令牌过期时间（毫秒时间戳）
+     */
+    @TableField("refresh_expired_at")
+    private Long refreshExpiredAt;
+
+    /**
      * 默认支付平台编码
      */
     @TableField("default_payment_platform_code")

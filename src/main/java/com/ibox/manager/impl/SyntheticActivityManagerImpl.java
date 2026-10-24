@@ -3,7 +3,7 @@ package com.ibox.manager.impl;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.ibox.client.IboxClient;
 import com.ibox.common.SyntheticCenterCache;
-import com.ibox.constants.TokenConstant;
+import com.ibox.common.IboxAccountCache;
 import com.ibox.constants.UrlConstant;
 import com.ibox.entity.IboxAccountEntity;
 import com.ibox.manager.SyntheticActivityManager;
@@ -59,6 +59,9 @@ public class SyntheticActivityManagerImpl implements SyntheticActivityManager {
     private IboxAccountService iboxAccountService;
 
     @Autowired
+    private IboxAccountCache iboxAccountCache;
+
+    @Autowired
     private SyntheticCenterCache syntheticCenterCache;
 
     @Override
@@ -67,8 +70,12 @@ public class SyntheticActivityManagerImpl implements SyntheticActivityManager {
         long pageSize = req.getPageSize() == null || req.getPageSize() <= 0 ? 10L : req.getPageSize();
 
         log.info("【活动接口】开始调用 activity list, pageNum:{}, pageSize:{}", pageNum, pageSize);
+        IboxAccountEntity defaultAccount = iboxAccountCache.getDefaultAccount();
+        if (defaultAccount == null || !StringUtils.hasText(defaultAccount.getBearerToken())) {
+            return PageResponse.empty(pageNum, pageSize);
+        }
         IboxApiResponse<IboxPageDataRes<SyntheticActivityListItemRes>> response = iboxClient.get(
-            TokenConstant.TOKEN_3,
+            defaultAccount.getBearerToken(),
             String.format(UrlConstant.SYNTHETIC_ACTIVITY_LIST_URL, pageNum, pageSize),
             null,
             new TypeReference<>() {
