@@ -10,6 +10,8 @@ import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Default announcement content parser.
@@ -36,6 +38,13 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
     private static final List<String> FILTER_TITLE_LIST = List.of("公示", "补充", "活动延长", "关闭求购", "《西游-鲤鱼》全民活动来袭", "获取藏品《国风·一路牛》&《秀山》活动来袭","全民快乐加倍");
 
     /**
+     * Matches only the named goods immediately before a move into a new collection area.
+     */
+    private static final Pattern NEW_COLLECTION_MOVE_PATTERN = Pattern.compile(
+            "(《[^《》]+》(?:\\s*[/／、，,&＆和及与]\\s*《[^《》]+》)*)\\s*(?:将\\s*)?移入\\s*全新\\s*集合",
+            Pattern.UNICODE_CHARACTER_CLASS);
+
+    /**
      * Chooses a parse strategy based on announcement category.
      */
     @Override
@@ -54,7 +63,24 @@ public class DefaultAnnouncementContentParser implements AnnouncementContentPars
             log.info("【公告内容解析】寄售公告解析结果:{}", result);
             return result;
         }
+        List<String> movedNames = parseNewCollectionMoveTitle(title);
+        if (!movedNames.isEmpty()) {
+            log.info("【公告内容解析】移入全新集合公告解析结果:{}", movedNames);
+            return movedNames;
+        }
         return parseSynthesisAnnouncement(content);
+    }
+
+    /**
+     * Move announcements may name the goods only in the title, while the body names areas.
+     */
+    private List<String> parseNewCollectionMoveTitle(String title) {
+        LinkedHashSet<String> names = new LinkedHashSet<>();
+        Matcher matcher = NEW_COLLECTION_MOVE_PATTERN.matcher(toPlainText(title));
+        while (matcher.find()) {
+            extractCollectionNamesToSet(matcher.group(1), names, null);
+        }
+        return new ArrayList<>(names);
     }
 
     /**
